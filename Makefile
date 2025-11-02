@@ -149,10 +149,6 @@ test-unit:
 test-integration:
 	GOTESTSUM="$(GOTESTSUM)" TEST_TAG=integration ./hack/test-go.sh
 
-.PHONY: test-functional
-test-functional:
-	GOTESTSUM="$(GOTESTSUM)" TEST_TAG=functional ./hack/test-go.sh
-
 .PHONY: test-e2e
 test-e2e:
 	./test/e2e/main.sh full-test
@@ -169,7 +165,7 @@ test-teardown:
 	$(KINDENV) teardown
 
 .PHONY: test
-test: test-unit test-setup test-integration test-functional test-teardown
+test: test-unit test-setup test-integration test-teardown test-e2e
 
 # ------------------------------------------------------- PRE-PUSH --------------------------------------------------- #
 
