@@ -14,9 +14,11 @@
 
 name: shaper
 
+# ----------------------------------------------------------------------
 kindenv:
   kubeconfigPath: .ignore.kindenv.kubeconfig.yaml
 
+# ----------------------------------------------------------------------
 # -- localContainerRegistry will create if enabled a container registry in the kindenv using the kubeconfig which path
 #    is defined by {.kindenv.kubeconfigPath}.
 localContainerRegistry:
@@ -29,6 +31,7 @@ localContainerRegistry:
   # -- namespace where the local container registry will be deployed.
   namespace: local-container-registry
 
+# ----------------------------------------------------------------------
 oapiCodegenHelper:
   defaults:
     # -- sourceDir is the default directory locating the open api specifications.

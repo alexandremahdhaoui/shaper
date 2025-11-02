@@ -11,13 +11,13 @@ import (
 )
 
 var (
-	errKubeconfigRequired    = errors.New("kubeconfig path is required")
-	errNamespaceRequired     = errors.New("namespace is required")
-	errApplyCRD              = errors.New("failed to apply CRD")
-	errApplyDeployment       = errors.New("failed to apply deployment")
-	errWaitForReady          = errors.New("timeout waiting for pods to be ready")
-	errKubectlNotInstalled   = errors.New("kubectl command not found - please install kubectl")
-	errCheckPodStatus        = errors.New("failed to check pod status")
+	ErrKubeconfigRequired  = errors.New("kubeconfig path is required")
+	ErrNamespaceRequired   = errors.New("namespace is required")
+	ErrApplyCRD            = errors.New("failed to apply CRD")
+	ErrApplyDeployment     = errors.New("failed to apply deployment")
+	ErrWaitForReady        = errors.New("timeout waiting for pods to be ready")
+	ErrKubectlNotInstalled = errors.New("kubectl command not found - please install kubectl")
+	ErrCheckPodStatus      = errors.New("failed to check pod status")
 )
 
 // DeployConfig contains shaper deployment configuration
@@ -32,19 +32,19 @@ type DeployConfig struct {
 // DeployShaperToKIND deploys shaper to KIND cluster
 func DeployShaperToKIND(config DeployConfig) error {
 	if config.Kubeconfig == "" {
-		return errKubeconfigRequired
+		return ErrKubeconfigRequired
 	}
 	if config.Namespace == "" {
-		return errNamespaceRequired
+		return ErrNamespaceRequired
 	}
 
 	// Check if kubectl is installed
 	if !IsKubectlInstalled() {
-		return errKubectlNotInstalled
+		return ErrKubectlNotInstalled
 	}
 
 	// Create namespace if it doesn't exist
-	if err := createNamespace(config.Kubeconfig, config.Namespace); err != nil {
+	if err := CreateNamespace(config.Kubeconfig, config.Namespace); err != nil {
 		return err
 	}
 
@@ -77,7 +77,7 @@ func DeployShaperToKIND(config DeployConfig) error {
 // CreateCRDs applies CRD definitions
 func CreateCRDs(kubeconfig string, crdPaths []string) error {
 	if kubeconfig == "" {
-		return errKubeconfigRequired
+		return ErrKubeconfigRequired
 	}
 
 	for _, crdPath := range crdPaths {
@@ -90,7 +90,7 @@ func CreateCRDs(kubeconfig string, crdPaths []string) error {
 		cmd := exec.Command("kubectl", "--kubeconfig", kubeconfig, "apply", "-f", crdPath)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			return fmt.Errorf("%w: %s: %v, output: %s", errApplyCRD, crdPath, err, string(output))
+			return fmt.Errorf("%w: %s: %v, output: %s", ErrApplyCRD, crdPath, err, string(output))
 		}
 	}
 
@@ -100,10 +100,10 @@ func CreateCRDs(kubeconfig string, crdPaths []string) error {
 // WaitForShaperReady waits for shaper pods to be ready
 func WaitForShaperReady(kubeconfig, namespace string, timeout time.Duration) error {
 	if kubeconfig == "" {
-		return errKubeconfigRequired
+		return ErrKubeconfigRequired
 	}
 	if namespace == "" {
-		return errNamespaceRequired
+		return ErrNamespaceRequired
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -124,9 +124,9 @@ func WaitForShaperReady(kubeconfig, namespace string, timeout time.Duration) err
 	if err != nil {
 		// Check if it's a timeout
 		if ctx.Err() == context.DeadlineExceeded {
-			return fmt.Errorf("%w: %v", errWaitForReady, ctx.Err())
+			return fmt.Errorf("%w: %v", ErrWaitForReady, ctx.Err())
 		}
-		return fmt.Errorf("%w: %v, output: %s", errWaitForReady, err, string(output))
+		return fmt.Errorf("%w: %v, output: %s", ErrWaitForReady, err, string(output))
 	}
 
 	return nil
@@ -140,7 +140,7 @@ func ApplyManifest(kubeconfig, namespace, manifestPath string) error {
 // applyManifest is the internal implementation
 func applyManifest(kubeconfig, namespace, manifestPath string) error {
 	if kubeconfig == "" {
-		return errKubeconfigRequired
+		return ErrKubeconfigRequired
 	}
 
 	// Check if manifest exists
@@ -157,14 +157,14 @@ func applyManifest(kubeconfig, namespace, manifestPath string) error {
 	cmd := exec.Command("kubectl", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%w: %s: %v, output: %s", errApplyDeployment, manifestPath, err, string(output))
+		return fmt.Errorf("%w: %s: %v, output: %s", ErrApplyDeployment, manifestPath, err, string(output))
 	}
 
 	return nil
 }
 
-// createNamespace creates a Kubernetes namespace if it doesn't exist
-func createNamespace(kubeconfig, namespace string) error {
+// CreateNamespace creates a Kubernetes namespace if it doesn't exist
+func CreateNamespace(kubeconfig, namespace string) error {
 	// Check if namespace exists
 	cmd := exec.Command("kubectl", "--kubeconfig", kubeconfig, "get", "namespace", namespace)
 	if err := cmd.Run(); err == nil {
@@ -191,16 +191,16 @@ func IsKubectlInstalled() bool {
 // GetPodStatus gets the status of pods in a namespace
 func GetPodStatus(kubeconfig, namespace string) (string, error) {
 	if kubeconfig == "" {
-		return "", errKubeconfigRequired
+		return "", ErrKubeconfigRequired
 	}
 	if namespace == "" {
-		return "", errNamespaceRequired
+		return "", ErrNamespaceRequired
 	}
 
 	cmd := exec.Command("kubectl", "--kubeconfig", kubeconfig, "-n", namespace, "get", "pods")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", errCheckPodStatus, err)
+		return "", fmt.Errorf("%w: %v", ErrCheckPodStatus, err)
 	}
 
 	return string(output), nil
@@ -209,7 +209,7 @@ func GetPodStatus(kubeconfig, namespace string) (string, error) {
 // CreateTestProfile creates a test Profile CRD
 func CreateTestProfile(kubeconfig, namespace, name string, profileYAML []byte) error {
 	if kubeconfig == "" {
-		return errKubeconfigRequired
+		return ErrKubeconfigRequired
 	}
 
 	// Write profile to temp file
@@ -226,7 +226,7 @@ func CreateTestProfile(kubeconfig, namespace, name string, profileYAML []byte) e
 // CreateTestAssignment creates a test Assignment CRD
 func CreateTestAssignment(kubeconfig, namespace, name string, assignmentYAML []byte) error {
 	if kubeconfig == "" {
-		return errKubeconfigRequired
+		return ErrKubeconfigRequired
 	}
 
 	// Write assignment to temp file
@@ -243,7 +243,7 @@ func CreateTestAssignment(kubeconfig, namespace, name string, assignmentYAML []b
 // DeleteManifest deletes resources from a manifest file
 func DeleteManifest(kubeconfig, namespace, manifestPath string) error {
 	if kubeconfig == "" {
-		return errKubeconfigRequired
+		return ErrKubeconfigRequired
 	}
 
 	// Check if manifest exists

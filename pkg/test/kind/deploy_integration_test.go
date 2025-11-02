@@ -1,8 +1,9 @@
 //go:build integration
 
-package kind
+package kind_test
 
 import (
+	"github.com/alexandremahdhaoui/shaper/pkg/test/kind"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,7 +16,7 @@ import (
 // Integration tests
 
 func TestCreateNamespace_Integration(t *testing.T) {
-	if !IsKindInstalled() || !IsKubectlInstalled() {
+	if !kind.IsKindInstalled() || !kind.IsKubectlInstalled() {
 		t.Skip("KIND or kubectl not installed")
 	}
 
@@ -23,28 +24,28 @@ func TestCreateNamespace_Integration(t *testing.T) {
 	clusterName := "test-" + uuid.NewString()[:8]
 	kubeconfigPath := filepath.Join(t.TempDir(), "kubeconfig")
 
-	config := ClusterConfig{
+	config := kind.ClusterConfig{
 		Name:       clusterName,
 		Kubeconfig: kubeconfigPath,
 	}
 
-	err := CreateCluster(config)
+	err := kind.CreateCluster(config)
 	require.NoError(t, err)
-	defer DeleteCluster(clusterName)
+	defer kind.DeleteCluster(clusterName)
 
 	// Test namespace creation
 	namespace := "test-ns-" + uuid.NewString()[:8]
-	err = createNamespace(kubeconfigPath, namespace)
+	err = kind.CreateNamespace(kubeconfigPath, namespace)
 	require.NoError(t, err)
 
 	// Verify namespace exists
 	// We can do this by trying to create it again - should succeed (already exists)
-	err = createNamespace(kubeconfigPath, namespace)
+	err = kind.CreateNamespace(kubeconfigPath, namespace)
 	require.NoError(t, err)
 }
 
 func TestApplyManifest_Integration(t *testing.T) {
-	if !IsKindInstalled() || !IsKubectlInstalled() {
+	if !kind.IsKindInstalled() || !kind.IsKubectlInstalled() {
 		t.Skip("KIND or kubectl not installed")
 	}
 
@@ -52,14 +53,14 @@ func TestApplyManifest_Integration(t *testing.T) {
 	clusterName := "test-" + uuid.NewString()[:8]
 	kubeconfigPath := filepath.Join(t.TempDir(), "kubeconfig")
 
-	config := ClusterConfig{
+	config := kind.ClusterConfig{
 		Name:       clusterName,
 		Kubeconfig: kubeconfigPath,
 	}
 
-	err := CreateCluster(config)
+	err := kind.CreateCluster(config)
 	require.NoError(t, err)
-	defer DeleteCluster(clusterName)
+	defer kind.DeleteCluster(clusterName)
 
 	// Create a simple ConfigMap manifest
 	manifestContent := `apiVersion: v1
@@ -74,16 +75,16 @@ data:
 	require.NoError(t, err)
 
 	// Apply manifest
-	err = ApplyManifest(kubeconfigPath, "default", manifestPath)
+	err = kind.ApplyManifest(kubeconfigPath, "default", manifestPath)
 	require.NoError(t, err)
 
 	// Clean up
-	err = DeleteManifest(kubeconfigPath, "default", manifestPath)
+	err = kind.DeleteManifest(kubeconfigPath, "default", manifestPath)
 	require.NoError(t, err)
 }
 
 func TestCreateCRDs_Integration(t *testing.T) {
-	if !IsKindInstalled() || !IsKubectlInstalled() {
+	if !kind.IsKindInstalled() || !kind.IsKubectlInstalled() {
 		t.Skip("KIND or kubectl not installed")
 	}
 
@@ -91,14 +92,14 @@ func TestCreateCRDs_Integration(t *testing.T) {
 	clusterName := "test-" + uuid.NewString()[:8]
 	kubeconfigPath := filepath.Join(t.TempDir(), "kubeconfig")
 
-	config := ClusterConfig{
+	config := kind.ClusterConfig{
 		Name:       clusterName,
 		Kubeconfig: kubeconfigPath,
 	}
 
-	err := CreateCluster(config)
+	err := kind.CreateCluster(config)
 	require.NoError(t, err)
-	defer DeleteCluster(clusterName)
+	defer kind.DeleteCluster(clusterName)
 
 	// Create a simple CRD manifest
 	crdContent := `apiVersion: apiextensions.k8s.io/v1
@@ -132,16 +133,16 @@ spec:
 	require.NoError(t, err)
 
 	// Apply CRD
-	err = CreateCRDs(kubeconfigPath, []string{crdPath})
+	err = kind.CreateCRDs(kubeconfigPath, []string{crdPath})
 	require.NoError(t, err)
 
 	// Clean up
-	err = DeleteManifest(kubeconfigPath, "", crdPath)
+	err = kind.DeleteManifest(kubeconfigPath, "", crdPath)
 	require.NoError(t, err)
 }
 
 func TestGetPodStatus_Integration(t *testing.T) {
-	if !IsKindInstalled() || !IsKubectlInstalled() {
+	if !kind.IsKindInstalled() || !kind.IsKubectlInstalled() {
 		t.Skip("KIND or kubectl not installed")
 	}
 
@@ -149,17 +150,17 @@ func TestGetPodStatus_Integration(t *testing.T) {
 	clusterName := "test-" + uuid.NewString()[:8]
 	kubeconfigPath := filepath.Join(t.TempDir(), "kubeconfig")
 
-	config := ClusterConfig{
+	config := kind.ClusterConfig{
 		Name:       clusterName,
 		Kubeconfig: kubeconfigPath,
 	}
 
-	err := CreateCluster(config)
+	err := kind.CreateCluster(config)
 	require.NoError(t, err)
-	defer DeleteCluster(clusterName)
+	defer kind.DeleteCluster(clusterName)
 
 	// Get pod status (might be empty, but should not error)
-	status, err := GetPodStatus(kubeconfigPath, "kube-system")
+	status, err := kind.GetPodStatus(kubeconfigPath, "kube-system")
 	require.NoError(t, err)
 	require.NotEmpty(t, status)
 	// Should contain header
@@ -167,7 +168,7 @@ func TestGetPodStatus_Integration(t *testing.T) {
 }
 
 func TestDeployShaperToKIND_WithoutDeployment_Integration(t *testing.T) {
-	if !IsKindInstalled() || !IsKubectlInstalled() {
+	if !kind.IsKindInstalled() || !kind.IsKubectlInstalled() {
 		t.Skip("KIND or kubectl not installed")
 	}
 
@@ -175,29 +176,29 @@ func TestDeployShaperToKIND_WithoutDeployment_Integration(t *testing.T) {
 	clusterName := "test-" + uuid.NewString()[:8]
 	kubeconfigPath := filepath.Join(t.TempDir(), "kubeconfig")
 
-	clusterConfig := ClusterConfig{
+	clusterConfig := kind.ClusterConfig{
 		Name:       clusterName,
 		Kubeconfig: kubeconfigPath,
 	}
 
-	err := CreateCluster(clusterConfig)
+	err := kind.CreateCluster(clusterConfig)
 	require.NoError(t, err)
-	defer DeleteCluster(clusterName)
+	defer kind.DeleteCluster(clusterName)
 
 	// Deploy without actual deployment (just namespace and CRDs)
 	namespace := "test-shaper"
-	deployConfig := DeployConfig{
+	deployConfig := kind.DeployConfig{
 		Kubeconfig:  kubeconfigPath,
 		Namespace:   namespace,
 		WaitTimeout: 30 * time.Second,
 	}
 
-	err = DeployShaperToKIND(deployConfig)
+	err = kind.DeployShaperToKIND(deployConfig)
 	require.NoError(t, err)
 }
 
 func TestCreateTestProfile_Integration(t *testing.T) {
-	if !IsKindInstalled() || !IsKubectlInstalled() {
+	if !kind.IsKindInstalled() || !kind.IsKubectlInstalled() {
 		t.Skip("KIND or kubectl not installed")
 	}
 
@@ -205,14 +206,14 @@ func TestCreateTestProfile_Integration(t *testing.T) {
 	clusterName := "test-" + uuid.NewString()[:8]
 	kubeconfigPath := filepath.Join(t.TempDir(), "kubeconfig")
 
-	config := ClusterConfig{
+	config := kind.ClusterConfig{
 		Name:       clusterName,
 		Kubeconfig: kubeconfigPath,
 	}
 
-	err := CreateCluster(config)
+	err := kind.CreateCluster(config)
 	require.NoError(t, err)
-	defer DeleteCluster(clusterName)
+	defer kind.DeleteCluster(clusterName)
 
 	// First create the CRD
 	crdContent := `apiVersion: apiextensions.k8s.io/v1
@@ -245,7 +246,7 @@ spec:
 	err = os.WriteFile(crdPath, []byte(crdContent), 0644)
 	require.NoError(t, err)
 
-	err = CreateCRDs(kubeconfigPath, []string{crdPath})
+	err = kind.CreateCRDs(kubeconfigPath, []string{crdPath})
 	require.NoError(t, err)
 
 	// Create a test profile
@@ -257,7 +258,7 @@ spec:
   bootImage: ubuntu-22.04
 `)
 
-	err = CreateTestProfile(kubeconfigPath, "default", "test-profile", profileYAML)
+	err = kind.CreateTestProfile(kubeconfigPath, "default", "test-profile", profileYAML)
 	require.NoError(t, err)
 }
 

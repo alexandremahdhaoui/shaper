@@ -14,15 +14,15 @@ import (
 )
 
 var (
-	errInterfaceRequired   = errors.New("interface is required")
-	errDHCPRangeRequired   = errors.New("DHCP range is required")
-	errTFTPRootRequired    = errors.New("TFTP root is required")
-	errBootFilenameRequired = errors.New("boot filename is required")
-	errConfigPathRequired  = errors.New("config path is required")
-	errStartDnsmasq        = errors.New("failed to start dnsmasq")
-	errStopDnsmasq         = errors.New("failed to stop dnsmasq")
-	errReadPIDFile         = errors.New("failed to read PID file")
-	errInvalidPID          = errors.New("invalid PID in PID file")
+	ErrInterfaceRequired    = errors.New("interface is required")
+	ErrDHCPRangeRequired    = errors.New("DHCP range is required")
+	ErrTFTPRootRequired     = errors.New("TFTP root is required")
+	ErrBootFilenameRequired = errors.New("boot filename is required")
+	ErrConfigPathRequired   = errors.New("config path is required")
+	ErrStartDnsmasq         = errors.New("failed to start dnsmasq")
+	ErrStopDnsmasq          = errors.New("failed to stop dnsmasq")
+	ErrReadPIDFile          = errors.New("failed to read PID file")
+	ErrInvalidPID           = errors.New("invalid PID in PID file")
 )
 
 // DnsmasqConfig contains dnsmasq configuration
@@ -80,16 +80,16 @@ keep-in-foreground
 // GenerateConfig generates dnsmasq.conf content
 func (c *DnsmasqConfig) GenerateConfig() ([]byte, error) {
 	if c.Interface == "" {
-		return nil, errInterfaceRequired
+		return nil, ErrInterfaceRequired
 	}
 	if c.DHCPRange == "" {
-		return nil, errDHCPRangeRequired
+		return nil, ErrDHCPRangeRequired
 	}
 	if c.TFTPRoot == "" {
-		return nil, errTFTPRootRequired
+		return nil, ErrTFTPRootRequired
 	}
 	if c.BootFilename == "" {
-		return nil, errBootFilenameRequired
+		return nil, ErrBootFilenameRequired
 	}
 
 	tmpl, err := template.New("dnsmasq").Parse(dnsmasqConfTemplate)
@@ -108,7 +108,7 @@ func (c *DnsmasqConfig) GenerateConfig() ([]byte, error) {
 // WriteConfig writes the dnsmasq configuration to a file
 func (c *DnsmasqConfig) WriteConfig(path string) error {
 	if path == "" {
-		return errConfigPathRequired
+		return ErrConfigPathRequired
 	}
 
 	content, err := c.GenerateConfig()
@@ -163,7 +163,7 @@ func StartDnsmasq(config DnsmasqConfig, configPath string) (*DnsmasqProcess, err
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("%w: %v", errStartDnsmasq, err)
+		return nil, fmt.Errorf("%w: %v", ErrStartDnsmasq, err)
 	}
 
 	return &DnsmasqProcess{
@@ -198,7 +198,7 @@ func (d *DnsmasqProcess) Stop() error {
 	case <-d.waitTimeout():
 		// Timeout - force kill
 		_ = d.cmd.Process.Kill()
-		return fmt.Errorf("%w: process did not exit gracefully", errStopDnsmasq)
+		return fmt.Errorf("%w: process did not exit gracefully", ErrStopDnsmasq)
 	}
 }
 
@@ -226,13 +226,13 @@ func StopByPIDFile(pidFile string) error {
 			// PID file doesn't exist, dnsmasq probably not running
 			return nil
 		}
-		return fmt.Errorf("%w: %v", errReadPIDFile, err)
+		return fmt.Errorf("%w: %v", ErrReadPIDFile, err)
 	}
 
 	pidStr := strings.TrimSpace(string(pidBytes))
 	pid, err := strconv.Atoi(pidStr)
 	if err != nil {
-		return fmt.Errorf("%w: %s", errInvalidPID, pidStr)
+		return fmt.Errorf("%w: %s", ErrInvalidPID, pidStr)
 	}
 
 	// Find process

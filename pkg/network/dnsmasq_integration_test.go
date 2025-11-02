@@ -1,8 +1,9 @@
 //go:build integration
 
-package network
+package network_test
 
 import (
+	"github.com/alexandremahdhaoui/shaper/pkg/network"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,15 +38,15 @@ func TestStartDnsmasq_Integration(t *testing.T) {
 		bridgeName = bridgeName[:15]
 	}
 
-	bridgeConfig := BridgeConfig{
+	bridgeConfig := network.BridgeConfig{
 		Name: bridgeName,
 		CIDR: "192.168.200.1/24",
 	}
-	err := CreateBridge(bridgeConfig)
+	err := network.CreateBridge(bridgeConfig)
 	require.NoError(t, err)
-	defer DeleteBridge(bridgeName)
+	defer network.DeleteBridge(bridgeName)
 
-	config := DnsmasqConfig{
+	config := network.DnsmasqConfig{
 		Interface:    bridgeName,
 		DHCPRange:    "192.168.200.10,192.168.200.250",
 		TFTPRoot:     tftpRoot,
@@ -56,7 +57,7 @@ func TestStartDnsmasq_Integration(t *testing.T) {
 		LogDHCP:      true,
 	}
 
-	proc, err := StartDnsmasq(config, configPath)
+	proc, err := network.StartDnsmasq(config, configPath)
 	require.NoError(t, err)
 	require.NotNil(t, proc)
 	defer proc.Stop()
@@ -95,15 +96,15 @@ func TestStopDnsmasq_Integration(t *testing.T) {
 		bridgeName = bridgeName[:15]
 	}
 
-	bridgeConfig := BridgeConfig{
+	bridgeConfig := network.BridgeConfig{
 		Name: bridgeName,
 		CIDR: "192.168.201.1/24",
 	}
-	err := CreateBridge(bridgeConfig)
+	err := network.CreateBridge(bridgeConfig)
 	require.NoError(t, err)
-	defer DeleteBridge(bridgeName)
+	defer network.DeleteBridge(bridgeName)
 
-	config := DnsmasqConfig{
+	config := network.DnsmasqConfig{
 		Interface:    bridgeName,
 		DHCPRange:    "192.168.201.10,192.168.201.250",
 		TFTPRoot:     tftpRoot,
@@ -111,7 +112,7 @@ func TestStopDnsmasq_Integration(t *testing.T) {
 		PIDFile:      pidFile,
 	}
 
-	proc, err := StartDnsmasq(config, configPath)
+	proc, err := network.StartDnsmasq(config, configPath)
 	require.NoError(t, err)
 
 	// Give dnsmasq a moment to start
@@ -151,15 +152,15 @@ func TestStopByPIDFile_Integration(t *testing.T) {
 		bridgeName = bridgeName[:15]
 	}
 
-	bridgeConfig := BridgeConfig{
+	bridgeConfig := network.BridgeConfig{
 		Name: bridgeName,
 		CIDR: "192.168.202.1/24",
 	}
-	err := CreateBridge(bridgeConfig)
+	err := network.CreateBridge(bridgeConfig)
 	require.NoError(t, err)
-	defer DeleteBridge(bridgeName)
+	defer network.DeleteBridge(bridgeName)
 
-	config := DnsmasqConfig{
+	config := network.DnsmasqConfig{
 		Interface:    bridgeName,
 		DHCPRange:    "192.168.202.10,192.168.202.250",
 		TFTPRoot:     tftpRoot,
@@ -167,7 +168,7 @@ func TestStopByPIDFile_Integration(t *testing.T) {
 		PIDFile:      pidFile,
 	}
 
-	proc, err := StartDnsmasq(config, configPath)
+	proc, err := network.StartDnsmasq(config, configPath)
 	require.NoError(t, err)
 
 	// Give dnsmasq a moment to start
@@ -176,7 +177,7 @@ func TestStopByPIDFile_Integration(t *testing.T) {
 	require.True(t, proc.IsRunning())
 
 	// Stop using PID file
-	err = StopByPIDFile(pidFile)
+	err = network.StopByPIDFile(pidFile)
 	require.NoError(t, err)
 
 	// Give it a moment to stop

@@ -9,12 +9,12 @@ import (
 )
 
 var (
-	errClusterNameRequired = errors.New("cluster name is required")
-	errCreateCluster       = errors.New("failed to create KIND cluster")
-	errDeleteCluster       = errors.New("failed to delete KIND cluster")
-	errCheckCluster        = errors.New("failed to check if cluster exists")
-	errGetKubeconfig       = errors.New("failed to get kubeconfig")
-	errKindNotInstalled    = errors.New("kind command not found - please install KIND")
+	ErrClusterNameRequired = errors.New("cluster name is required")
+	ErrCreateCluster       = errors.New("failed to create KIND cluster")
+	ErrDeleteCluster       = errors.New("failed to delete KIND cluster")
+	ErrCheckCluster        = errors.New("failed to check if cluster exists")
+	ErrGetKubeconfig       = errors.New("failed to get kubeconfig")
+	ErrKindNotInstalled    = errors.New("kind command not found - please install KIND")
 )
 
 // ClusterConfig contains KIND cluster configuration
@@ -28,12 +28,12 @@ type ClusterConfig struct {
 // CreateCluster creates a KIND cluster
 func CreateCluster(config ClusterConfig) error {
 	if config.Name == "" {
-		return errClusterNameRequired
+		return ErrClusterNameRequired
 	}
 
 	// Check if kind is installed
 	if _, err := exec.LookPath("kind"); err != nil {
-		return errKindNotInstalled
+		return ErrKindNotInstalled
 	}
 
 	// Check if cluster already exists
@@ -73,7 +73,7 @@ func CreateCluster(config ClusterConfig) error {
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%w: %v", errCreateCluster, err)
+		return fmt.Errorf("%w: %v", ErrCreateCluster, err)
 	}
 
 	// If kubeconfig path not specified in command, export it now
@@ -88,12 +88,12 @@ func CreateCluster(config ClusterConfig) error {
 // Idempotent - returns nil if cluster doesn't exist
 func DeleteCluster(name string) error {
 	if name == "" {
-		return errClusterNameRequired
+		return ErrClusterNameRequired
 	}
 
 	// Check if kind is installed
 	if _, err := exec.LookPath("kind"); err != nil {
-		return errKindNotInstalled
+		return ErrKindNotInstalled
 	}
 
 	// Check if cluster exists
@@ -110,7 +110,7 @@ func DeleteCluster(name string) error {
 	cmd := exec.Command("kind", "delete", "cluster", "--name", name)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%w: %v, output: %s", errDeleteCluster, err, string(output))
+		return fmt.Errorf("%w: %v, output: %s", ErrDeleteCluster, err, string(output))
 	}
 
 	return nil
@@ -119,19 +119,19 @@ func DeleteCluster(name string) error {
 // ClusterExists checks if a KIND cluster exists
 func ClusterExists(name string) (bool, error) {
 	if name == "" {
-		return false, errClusterNameRequired
+		return false, ErrClusterNameRequired
 	}
 
 	// Check if kind is installed
 	if _, err := exec.LookPath("kind"); err != nil {
-		return false, errKindNotInstalled
+		return false, ErrKindNotInstalled
 	}
 
 	// Get list of clusters
 	cmd := exec.Command("kind", "get", "clusters")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return false, fmt.Errorf("%w: %v", errCheckCluster, err)
+		return false, fmt.Errorf("%w: %v", ErrCheckCluster, err)
 	}
 
 	// Check if our cluster is in the list
@@ -148,19 +148,19 @@ func ClusterExists(name string) (bool, error) {
 // GetKubeconfig gets the kubeconfig for a cluster
 func GetKubeconfig(name string) (string, error) {
 	if name == "" {
-		return "", errClusterNameRequired
+		return "", ErrClusterNameRequired
 	}
 
 	// Check if kind is installed
 	if _, err := exec.LookPath("kind"); err != nil {
-		return "", errKindNotInstalled
+		return "", ErrKindNotInstalled
 	}
 
 	// Get kubeconfig
 	cmd := exec.Command("kind", "get", "kubeconfig", "--name", name)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", errGetKubeconfig, err)
+		return "", fmt.Errorf("%w: %v", ErrGetKubeconfig, err)
 	}
 
 	return string(output), nil

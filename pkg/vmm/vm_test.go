@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alexandremahdhaoui/shaper/internal/util/ssh"
+	"github.com/alexandremahdhaoui/shaper/internal/util/testutil"
 	"github.com/alexandremahdhaoui/shaper/pkg/cloudinit"
 	"github.com/alexandremahdhaoui/shaper/pkg/execcontext"
-	"github.com/alexandremahdhaoui/shaper/internal/examples/ssh"
-	"github.com/alexandremahdhaoui/shaper/internal/examples/test/testutils"
 	"github.com/alexandremahdhaoui/shaper/pkg/vmm"
 )
 
@@ -28,7 +28,7 @@ func TestVMMStructLifecycle(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Create subdirectory with permissions for libvirt to access VM disk files
-	vmBaseDir := testutils.PrepareLibvirtDir(t, tempDir, "vm-disks")
+	vmBaseDir := testutil.PrepareLibvirtDir(t, tempDir, "vm-disks")
 
 	cacheDir := filepath.Join(os.TempDir(), "edgectl")
 	fmt.Println(cacheDir)

@@ -29,7 +29,7 @@ GO_BUILD_LDFLAGS ?= "-X main.BuildTimestamp=$(TIMESTAMP) -X main.CommitSHA=$(COM
 # ------------------------------------------------------- VERSIONS --------------------------------------------------- #
 
 # renovate: datasource=github-release depName=kubernetes-sigs/controller-tools
-CONTROLLER_GEN_VERSION := v0.14.0
+CONTROLLER_GEN_VERSION := v0.19.0
 # renovate: datasource=github-release depName=mvdan/gofumpt
 GOFUMPT_VERSION        := v0.6.0
 # renovate: datasource=github-release depName=golangci/golangci-lint
@@ -37,9 +37,9 @@ GOLANGCI_LINT_VERSION  := v1.63.4
 # renovate: datasource=github-release depName=gotestyourself/gotestsum
 GOTESTSUM_VERSION      := v1.12.0
 # renovate: datasource=github-release depName=vektra/mockery
-MOCKERY_VERSION        := v2.42.0
+MOCKERY_VERSION        := v3.5.5
 # renovate: datasource=github-release depName=oapi-codegen/oapi-codegen
-OAPI_CODEGEN_VERSION   := v2.3.0
+OAPI_CODEGEN_VERSION   := v2.5.0
 # renovate: datasource=github-release depName=alexandremahdhaoui/tooling
 TOOLING_VERSION        := v0.1.4
 # renovate: datasource=github-release depName=mikefarah/yq
@@ -63,7 +63,7 @@ GOFUMPT             := go run mvdan.cc/gofumpt@$(GOFUMPT_VERSION)
 GOLANGCI_LINT       := go run github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 GOTESTSUM           := go run gotest.tools/gotestsum@$(GOTESTSUM_VERSION) --format pkgname
 LOCAL_CONTAINER_REG := $(TOOLING)/local-container-registry@$(TOOLING_VERSION)
-MOCKERY             := go run github.com/vektra/mockery/v2@$(MOCKERY_VERSION)
+MOCKERY             := go run github.com/vektra/mockery/v3@$(MOCKERY_VERSION)
 OAPI_CODEGEN        := go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@$(OAPI_CODEGEN_VERSION)
 OAPI_CODEGEN_HELPER := OAPI_CODEGEN="$(OAPI_CODEGEN)" $(TOOLING)/oapi-codegen-helper@$(TOOLING_VERSION)
 
@@ -77,24 +77,46 @@ modules: ## Run go mod tidy
 
 # ------------------------------------------------------- GENERATE --------------------------------------------------- #
 
-.PHONY: generate
-generate: ## Generate REST API server/client code, CRDs and other go generators.
+CRDS_DEST_DIR     := charts/$(PROJECT)-crds/templates/crds
+WEBHOOK_DEST_DIR := charts/$(PROJECT)/templates/webhook
+RBAC_DEST_DIR    := charts/$(PROJECT)/templates/rbac
+
+BOILERPLATE_GO_TXT := ./hack/boilerplate.go.txt
+
+.PHONY: generate-oapi
+generate-oapi:
 	$(OAPI_CODEGEN_HELPER)
 	$(GO_GEN) "./..."
 
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+.PHONY: generate-crds
+generate-crds: ## Generate REST API server/client code, CRDs and other go generators.
+	$(CONTROLLER_GEN) object:headerFile=$(BOILERPLATE_GO_TXT) paths="./..."
 	$(CONTROLLER_GEN) paths="./..." \
 		crd:generateEmbeddedObjectMeta=true \
-		output:crd:artifacts:config=charts/$(PROJECT)/templates/crds
+		output:crd:artifacts:config=$(CRDS_DEST_DIR)
 
+.PHONY: generate-rbac
+generate-rbac:
 	$(CONTROLLER_GEN) paths="./..." \
 		rbac:roleName=$(PROJECT) \
-		webhook \
-		output:rbac:dir=charts/$(PROJECT)/templates/rbac \
-		output:webhook:dir=charts/$(PROJECT)/templates/webhook
+		output:rbac:dir=$(RBAC_DEST_DIR)
 
+.PHONY: generate-webhooks
+generate-webhooks:
+	$(CONTROLLER_GEN) paths="./..." \
+		rbac:roleName=$(PROJECT)-webhook \
+		webhook \
+		output:rbac:dir=$(WEBHOOK_DEST_DIR) \
+		output:webhook:dir=$(WEBHOOK_DEST_DIR)
+
+.PHONY: generate-mocks
+generate-mocks:
 	$(CLEAN_MOCKS)
 	$(MOCKERY)
+
+
+.PHONY: generate
+generate: generate-oapi generate-crds generate-rbac generate-webhooks generate-mocks
 
 # ------------------------------------------------------- BUILD BINARIES --------------------------------------------- #
 
@@ -157,7 +179,7 @@ test-e2e:
 test-setup:
 	$(KINDENV) setup
 	@echo "Applying crds..."
-	KUBECONFIG=$(KUBECONFIG) kubectl apply -f ./charts/shaper/templates/crds/
+	KUBECONFIG=$(KUBECONFIG) kubectl apply -f ./charts/shaper-crds/templates/crds/
 	@echo "\nPlease run the following command to set up your kubeconfig:\n    export KUBECONFIG=$(KUBECONFIG)\n"
 
 .PHONY: test-teardown

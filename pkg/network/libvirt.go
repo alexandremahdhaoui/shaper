@@ -9,15 +9,15 @@ import (
 )
 
 var (
-	errNetworkNameRequired = errors.New("network name is required")
-	errConnNil             = errors.New("libvirt connection is nil")
-	errCreateNetwork       = errors.New("failed to create libvirt network")
-	errDefineNetwork       = errors.New("failed to define libvirt network")
-	errStartNetwork        = errors.New("failed to start libvirt network")
-	errDestroyNetwork      = errors.New("failed to destroy libvirt network")
-	errUndefineNetwork     = errors.New("failed to undefine libvirt network")
-	errCheckNetwork        = errors.New("failed to check if network exists")
-	errMarshalNetworkXML   = errors.New("failed to marshal network XML")
+	ErrNetworkNameRequired = errors.New("network name is required")
+	ErrConnNil             = errors.New("libvirt connection is nil")
+	ErrCreateNetwork       = errors.New("failed to create libvirt network")
+	ErrDefineNetwork       = errors.New("failed to define libvirt network")
+	ErrStartNetwork        = errors.New("failed to start libvirt network")
+	ErrDestroyNetwork      = errors.New("failed to destroy libvirt network")
+	ErrUndefineNetwork     = errors.New("failed to undefine libvirt network")
+	ErrCheckNetwork        = errors.New("failed to check if network exists")
+	ErrMarshalNetworkXML   = errors.New("failed to marshal network XML")
 )
 
 // LibvirtNetworkConfig contains libvirt network configuration
@@ -32,10 +32,10 @@ type LibvirtNetworkConfig struct {
 // For nat/isolated modes, libvirt manages the network
 func CreateLibvirtNetwork(conn *libvirt.Connect, config LibvirtNetworkConfig) error {
 	if conn == nil {
-		return errConnNil
+		return ErrConnNil
 	}
 	if config.Name == "" {
-		return errNetworkNameRequired
+		return ErrNetworkNameRequired
 	}
 
 	// Set default mode if not specified
@@ -54,7 +54,7 @@ func CreateLibvirtNetwork(conn *libvirt.Connect, config LibvirtNetworkConfig) er
 	}
 
 	// Generate network XML
-	networkXML, err := generateNetworkXML(config)
+	networkXML, err := GenerateNetworkXML(config)
 	if err != nil {
 		return err
 	}
@@ -62,7 +62,7 @@ func CreateLibvirtNetwork(conn *libvirt.Connect, config LibvirtNetworkConfig) er
 	// Define the network
 	network, err := conn.NetworkDefineXML(networkXML)
 	if err != nil {
-		return fmt.Errorf("%w: %v", errDefineNetwork, err)
+		return fmt.Errorf("%w: %v", ErrDefineNetwork, err)
 	}
 	defer network.Free()
 
@@ -70,7 +70,7 @@ func CreateLibvirtNetwork(conn *libvirt.Connect, config LibvirtNetworkConfig) er
 	if err := network.Create(); err != nil {
 		// Try to undefine on failure
 		_ = network.Undefine()
-		return fmt.Errorf("%w: %v", errStartNetwork, err)
+		return fmt.Errorf("%w: %v", ErrStartNetwork, err)
 	}
 
 	// Set network to autostart
@@ -86,10 +86,10 @@ func CreateLibvirtNetwork(conn *libvirt.Connect, config LibvirtNetworkConfig) er
 // Idempotent - returns nil if network doesn't exist
 func DeleteLibvirtNetwork(conn *libvirt.Connect, name string) error {
 	if name == "" {
-		return errNetworkNameRequired
+		return ErrNetworkNameRequired
 	}
 	if conn == nil {
-		return errConnNil
+		return ErrConnNil
 	}
 
 	// Check if network exists
@@ -119,13 +119,13 @@ func DeleteLibvirtNetwork(conn *libvirt.Connect, name string) error {
 	// Destroy (stop) network if it's active
 	if active {
 		if err := network.Destroy(); err != nil {
-			return fmt.Errorf("%w: %v", errDestroyNetwork, err)
+			return fmt.Errorf("%w: %v", ErrDestroyNetwork, err)
 		}
 	}
 
 	// Undefine (remove) the network
 	if err := network.Undefine(); err != nil {
-		return fmt.Errorf("%w: %v", errUndefineNetwork, err)
+		return fmt.Errorf("%w: %v", ErrUndefineNetwork, err)
 	}
 
 	return nil
@@ -134,10 +134,10 @@ func DeleteLibvirtNetwork(conn *libvirt.Connect, name string) error {
 // NetworkExists checks if a libvirt network exists
 func NetworkExists(conn *libvirt.Connect, name string) (bool, error) {
 	if name == "" {
-		return false, errNetworkNameRequired
+		return false, ErrNetworkNameRequired
 	}
 	if conn == nil {
-		return false, errConnNil
+		return false, ErrConnNil
 	}
 
 	// Try to lookup the network
@@ -149,15 +149,15 @@ func NetworkExists(conn *libvirt.Connect, name string) (bool, error) {
 			return false, nil
 		}
 		// Some other error
-		return false, fmt.Errorf("%w: %v", errCheckNetwork, err)
+		return false, fmt.Errorf("%w: %v", ErrCheckNetwork, err)
 	}
 	defer network.Free()
 
 	return true, nil
 }
 
-// generateNetworkXML creates libvirt network XML from config
-func generateNetworkXML(config LibvirtNetworkConfig) (string, error) {
+// GenerateNetworkXML creates libvirt network XML from config
+func GenerateNetworkXML(config LibvirtNetworkConfig) (string, error) {
 	network := &libvirtxml.Network{
 		Name: config.Name,
 	}
@@ -213,7 +213,7 @@ func generateNetworkXML(config LibvirtNetworkConfig) (string, error) {
 	// Marshal to XML
 	xml, err := network.Marshal()
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", errMarshalNetworkXML, err)
+		return "", fmt.Errorf("%w: %v", ErrMarshalNetworkXML, err)
 	}
 
 	return xml, nil
@@ -234,7 +234,7 @@ func ensureNetworkActive(conn *libvirt.Connect, name string) error {
 
 	if !active {
 		if err := network.Create(); err != nil {
-			return fmt.Errorf("%w: %v", errStartNetwork, err)
+			return fmt.Errorf("%w: %v", ErrStartNetwork, err)
 		}
 	}
 

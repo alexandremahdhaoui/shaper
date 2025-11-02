@@ -1,23 +1,9 @@
-# Copyright 2024 Alexandre Mahdhaoui
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.14.0
+    controller-gen.kubebuilder.io/version: v0.19.0
   name: profiles.shaper.amahdha.com
 spec:
   group: shaper.amahdha.com
@@ -31,6 +17,7 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
+        description: Profile is the Schema for the profiles API
         properties:
           apiVersion:
             description: |-
@@ -50,11 +37,14 @@ spec:
           metadata:
             type: object
           spec:
+            description: ProfileSpec defines the desired state of Profile
             properties:
               additionalContent:
                 description: AdditionalContent can be templated into the IPXETemplate
                   using the content's key.
                 items:
+                  description: AdditionalContent is a piece of content that can be
+                    templated into the IPXETemplate.
                   properties:
                     exposed:
                       description: |-
@@ -79,9 +69,8 @@ spec:
                           description: Group is the group of the apiVersion.
                           type: string
                         jsonpath:
-                          description: |-
-                            JSONPath to the desired content in the resource using jsonpath notation. E.g. `.data.private\.key`
-                            TODO: Validate this jsonpath in the webhook.
+                          description: JSONPath to the desired content in the resource
+                            using jsonpath notation. E.g. `.data.private\.key`
                           type: string
                         name:
                           description: Name is the name of the resource.
@@ -106,6 +95,8 @@ spec:
                     postTransformations:
                       description: PostTransformations is a list of Transformers
                       items:
+                        description: Transformer is a transformation that can be applied
+                          to a piece of content.
                         properties:
                           butaneToIgnition:
                             description: ButaneToIgnition transforms a butane yaml
@@ -116,6 +107,8 @@ spec:
                               configuration to a post transformation.
                             properties:
                               basicAuthRef:
+                                description: BasicAuthObjectRef is a reference to
+                                  a secret containing the basic auth configuration.
                                 properties:
                                   group:
                                     description: Group is the group of the apiVersion.
@@ -153,6 +146,8 @@ spec:
                                 - version
                                 type: object
                               mTLSRef:
+                                description: MTLSObjectRef is a reference to a secret
+                                  containing the mTLS configuration.
                                 properties:
                                   caBundleJSONPath:
                                     description: CaBundleJSONPath to the desired content
@@ -200,6 +195,7 @@ spec:
                                 - version
                                 type: object
                               url:
+                                description: URL is the URL of the webhook.
                                 type: string
                             required:
                             - url
@@ -214,6 +210,8 @@ spec:
                         bucket.
                       properties:
                         basicAuthRef:
+                          description: BasicAuthObjectRef is a reference to a secret
+                            containing the basic auth configuration.
                           properties:
                             group:
                               description: Group is the group of the apiVersion.
@@ -248,6 +246,8 @@ spec:
                           - version
                           type: object
                         mTLSRef:
+                          description: MTLSObjectRef is a reference to a secret containing
+                            the mTLS configuration.
                           properties:
                             caBundleJSONPath:
                               description: CaBundleJSONPath to the desired content
@@ -291,6 +291,7 @@ spec:
                           - version
                           type: object
                         url:
+                          description: URL is the URL of the webhook.
                           type: string
                       required:
                       - url
@@ -301,11 +302,13 @@ spec:
                   type: object
                 type: array
               ipxeTemplate:
+                description: IPXETemplate is the iPXE script template.
                 type: string
             required:
             - ipxeTemplate
             type: object
           status:
+            description: ProfileStatus defines the observed state of Profile
             type: object
         type: object
     served: true

@@ -8,13 +8,13 @@ import (
 )
 
 var (
-	errBridgeNameRequired = errors.New("bridge name is required")
-	errCIDRRequired       = errors.New("CIDR is required")
-	errCreateBridge       = errors.New("failed to create bridge")
-	errAddBridgeIP        = errors.New("failed to add IP address to bridge")
-	errBringBridgeUp      = errors.New("failed to bring bridge up")
-	errDeleteBridge       = errors.New("failed to delete bridge")
-	errCheckBridgeExists  = errors.New("failed to check if bridge exists")
+	ErrBridgeNameRequired = errors.New("bridge name is required")
+	ErrCIDRRequired       = errors.New("CIDR is required")
+	ErrCreateBridge       = errors.New("failed to create bridge")
+	ErrAddBridgeIP        = errors.New("failed to add IP address to bridge")
+	ErrBringBridgeUp      = errors.New("failed to bring bridge up")
+	ErrDeleteBridge       = errors.New("failed to delete bridge")
+	ErrCheckBridgeExists  = errors.New("failed to check if bridge exists")
 )
 
 // BridgeConfig contains network bridge configuration
@@ -27,10 +27,10 @@ type BridgeConfig struct {
 // Uses the 'ip' command to create a bridge device
 func CreateBridge(config BridgeConfig) error {
 	if config.Name == "" {
-		return errBridgeNameRequired
+		return ErrBridgeNameRequired
 	}
 	if config.CIDR == "" {
-		return errCIDRRequired
+		return ErrCIDRRequired
 	}
 
 	// Check if bridge already exists
@@ -46,7 +46,7 @@ func CreateBridge(config BridgeConfig) error {
 	// Create bridge: ip link add name <name> type bridge
 	cmd := exec.Command("ip", "link", "add", "name", config.Name, "type", "bridge")
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%w: %v, output: %s", errCreateBridge, err, string(output))
+		return fmt.Errorf("%w: %v, output: %s", ErrCreateBridge, err, string(output))
 	}
 
 	// Add IP address: ip addr add <cidr> dev <name>
@@ -54,7 +54,7 @@ func CreateBridge(config BridgeConfig) error {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		// Try to cleanup the bridge we just created
 		_ = deleteBridge(config.Name)
-		return fmt.Errorf("%w: %v, output: %s", errAddBridgeIP, err, string(output))
+		return fmt.Errorf("%w: %v, output: %s", ErrAddBridgeIP, err, string(output))
 	}
 
 	// Bring bridge up: ip link set <name> up
@@ -62,7 +62,7 @@ func CreateBridge(config BridgeConfig) error {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		// Try to cleanup
 		_ = deleteBridge(config.Name)
-		return fmt.Errorf("%w: %v, output: %s", errBringBridgeUp, err, string(output))
+		return fmt.Errorf("%w: %v, output: %s", ErrBringBridgeUp, err, string(output))
 	}
 
 	return nil
@@ -72,7 +72,7 @@ func CreateBridge(config BridgeConfig) error {
 // Idempotent - returns nil if bridge doesn't exist
 func DeleteBridge(name string) error {
 	if name == "" {
-		return errBridgeNameRequired
+		return ErrBridgeNameRequired
 	}
 
 	// Check if bridge exists
@@ -97,7 +97,7 @@ func deleteBridge(name string) error {
 	// Delete bridge: ip link delete <name> type bridge
 	cmd = exec.Command("ip", "link", "delete", name, "type", "bridge")
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%w: %v, output: %s", errDeleteBridge, err, string(output))
+		return fmt.Errorf("%w: %v, output: %s", ErrDeleteBridge, err, string(output))
 	}
 
 	return nil
@@ -106,7 +106,7 @@ func deleteBridge(name string) error {
 // BridgeExists checks if a bridge exists
 func BridgeExists(name string) (bool, error) {
 	if name == "" {
-		return false, errBridgeNameRequired
+		return false, ErrBridgeNameRequired
 	}
 
 	// Use 'ip -d link show <name>' to check if bridge exists
@@ -120,7 +120,7 @@ func BridgeExists(name string) (bool, error) {
 			return false, nil
 		}
 		// Some other error occurred
-		return false, fmt.Errorf("%w: %v, output: %s", errCheckBridgeExists, err, string(output))
+		return false, fmt.Errorf("%w: %v, output: %s", ErrCheckBridgeExists, err, string(output))
 	}
 
 	// Command succeeded, verify it's actually a bridge
@@ -155,14 +155,14 @@ func ensureBridgeIP(name, cidr string) error {
 	if output, err := cmd.CombinedOutput(); err != nil {
 		// If error is "File exists", the IP is already there with different CIDR
 		if !strings.Contains(string(output), "File exists") {
-			return fmt.Errorf("%w: %v, output: %s", errAddBridgeIP, err, string(output))
+			return fmt.Errorf("%w: %v, output: %s", ErrAddBridgeIP, err, string(output))
 		}
 	}
 
 	// Bring bridge up
 	cmd = exec.Command("ip", "link", "set", name, "up")
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("%w: %v, output: %s", errBringBridgeUp, err, string(output))
+		return fmt.Errorf("%w: %v, output: %s", ErrBringBridgeUp, err, string(output))
 	}
 
 	return nil
