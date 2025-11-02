@@ -171,6 +171,10 @@ test-unit:
 test-integration:
 	GOTESTSUM="$(GOTESTSUM)" TEST_TAG=integration ./hack/test-go.sh
 
+.PHONY: test-webhook-integration
+test-webhook-integration: ## Run webhook integration tests (requires KUBECONFIG)
+	go test -v ./test/integration/webhook/...
+
 .PHONY: test-e2e
 test-e2e:
 	./test/e2e/main.sh full-test
@@ -180,6 +184,9 @@ test-setup:
 	$(KINDENV) setup
 	@echo "Applying crds..."
 	KUBECONFIG=$(KUBECONFIG) kubectl apply -f ./charts/shaper-crds/templates/crds/
+	@echo "Installing cert-manager..."
+	KUBECONFIG=$(KUBECONFIG) kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.0/cert-manager.yaml && \
+	KUBECONFIG=$(KUBECONFIG) kubectl wait --for=condition=Available --timeout=300s -n cert-manager deployment/cert-manager-webhook
 	@echo "\nPlease run the following command to set up your kubeconfig:\n    export KUBECONFIG=$(KUBECONFIG)\n"
 
 .PHONY: test-teardown

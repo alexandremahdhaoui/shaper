@@ -77,7 +77,7 @@ func (p *Profile) Default(ctx context.Context, obj runtime.Object) error {
 			if id, ok := reverseIDMap[content.Name]; ok {
 				profile.Labels[id] = content.Name
 			} else {
-				profile.Labels[uuid.New().String()] = content.Name
+				profile.Labels[v1alpha1.NewUUIDLabelSelector(uuid.New())] = content.Name
 			}
 		}
 	}
@@ -162,15 +162,16 @@ func validateAdditionalContent(ctx context.Context, obj runtime.Object) error {
 			}
 		}
 
+		// Count non-nil content sources
 		var i uint
-		for _, ptr := range []any{
-			content.Inline,
-			content.ObjectRef,
-			content.Webhook,
-		} {
-			if ptr != nil {
-				i += 1
-			}
+		if content.Inline != nil {
+			i++
+		}
+		if content.ObjectRef != nil {
+			i++
+		}
+		if content.Webhook != nil {
+			i++
 		}
 
 		switch {
@@ -184,16 +185,16 @@ func validateAdditionalContent(ctx context.Context, obj runtime.Object) error {
 			if err := validateObjectRef(content.ObjectRef); err != nil {
 				return err // TODO: wrap err
 			}
+			return nil
 		case content.Webhook != nil:
 			if err := validateWebhookConfig(content.Webhook); err != nil {
 				return err // TODO: wrap err
 			}
+			return nil
 		}
 	}
 
-	panic(
-		"open an issue on github",
-	) // this branch does not exist, open an issue if you manage to pass the above s/c.
+	return nil
 }
 
 func validateObjectRef(ref *v1alpha1.ObjectRef) error {

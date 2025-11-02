@@ -1,0 +1,51 @@
+# Example configuration for shaper-webhook
+#
+# This file demonstrates all available configuration options for the webhook server.
+# Copy this file and adjust values as needed for your deployment.
+#
+# For local development:
+#   export SHAPER_WEBHOOK_CONFIG_PATH=/path/to/your-config.yaml
+#   go run ./cmd/shaper-webhook
+#
+# For Kubernetes deployment:
+#   This configuration is typically generated from Helm values (see charts/shaper-webhooks/values.yaml)
+
+# assignmentNamespace: Namespace where Assignment CRDs are located
+# The webhook will validate/mutate Assignments in this namespace
+assignmentNamespace: default
+
+# profileNamespace: Namespace where Profile CRDs are located
+# The webhook will validate/mutate Profiles in this namespace
+profileNamespace: default
+
+# kubeconfigPath: Path to kubeconfig file
+# Use "in-cluster" when running inside Kubernetes
+# Use absolute path when running locally for development
+kubeconfigPath: "in-cluster"
+
+# webhookServer: Configuration for the webhook HTTPS server
+webhookServer:
+  # port: Port for the webhook server (must match the Service port in Kubernetes)
+  port: 9443
+  # certDir: Directory where TLS certificates are mounted (cert-manager manages these)
+  certDir: /tmp/k8s-webhook-server/serving-certs
+  # certName: Name of the TLS certificate file
+  certName: tls.crt
+  # keyName: Name of the TLS private key file
+  keyName: tls.key
+
+# probesServer: Configuration for health check endpoints
+probesServer:
+  # port: Port for health probes (liveness/readiness)
+  port: 8081
+  # livenessPath: HTTP path for liveness probe
+  livenessPath: /healthz
+  # readinessPath: HTTP path for readiness probe
+  readinessPath: /readyz
+
+# metricsServer: Configuration for Prometheus metrics
+metricsServer:
+  # port: Port for metrics endpoint
+  port: 8080
+  # path: HTTP path for metrics
+  path: /metrics

@@ -76,7 +76,7 @@ graph TB
     subgraph "Shaper Binaries"
         API["shaper-api [DONE]<br/>REST API Server"]
         CONTROLLER["shaper-controller [TODO]<br/>K8s Controller"]
-        WEBHOOK["shaper-webhook [TODO]<br/>Admission Webhooks"]
+        WEBHOOK["shaper-webhook [DONE]<br/>Admission Webhooks"]
         TFTP["shaper-tftp [TODO]<br/>TFTP Server"]
     end
 
@@ -222,14 +222,27 @@ graph TB
   - Not required for current MVP functionality
 
 #### shaper-webhook
-- **Status**: Not Implemented ❌
-- **Test Coverage**: N/A
+- **Status**: Implemented ✅
+- **Test Coverage**: Integration Tests ✅
 - **Purpose**: Kubernetes admission webhooks for validation and mutation of Profile/Assignment CRDs
 - **Key Files**:
-  - `cmd/shaper-webhook/main.go:1-40`
+  - `cmd/shaper-webhook/main.go:1-146` - Main webhook server
+  - `cmd/shaper-webhook/config.go:1-88` - Configuration loading
+  - `cmd/shaper-webhook/client.go:1-42` - Kubernetes client setup
+  - `cmd/shaper-webhook/webhook.go:1-68` - Webhook registration
+  - `cmd/shaper-webhook/probes.go:1-26` - Health probes
+  - `cmd/shaper-webhook/metrics.go:1-20` - Metrics server
+  - `charts/shaper-webhooks/` - Helm chart for deployment
+  - `test/integration/webhook/` - Integration tests
 - **Implementation Notes**:
-  - Placeholder only - panics with "implement me"
-  - Webhook drivers exist in `internal/driver/webhook` but not integrated
+  - Fully integrated with `internal/driver/webhook` validation/mutation logic
+  - TLS certificate management via cert-manager
+  - Health checks (liveness/readiness) and Prometheus metrics
+  - Graceful shutdown support
+  - Validates Assignment UUIDs, buildarch, and default assignment rules
+  - Validates Profile content sources (exactly one per content)
+  - Mutates Assignments to add UUID and buildarch labels
+  - Mutates Profiles to add UUID labels for exposed content
 
 #### shaper-tftp
 - **Status**: Not Implemented ❌
@@ -1978,7 +1991,7 @@ shaper/
 │   └── shaper-webhook-transformer.v1.yaml
 ├── charts/                                 # Helm charts
 │   └── shaper/                            # ✅ Helm chart for deployment
-├── configs/                                # Configuration files
+├── examples/                               # Example configuration files
 ├── containers/                             # Container definitions
 │   ├── shaper-api/Containerfile
 │   └── shaper-webhook/Containerfile

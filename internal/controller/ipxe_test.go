@@ -268,9 +268,157 @@ func TestIPXE_FindProfileAndRender(t *testing.T) {
 	})
 
 	t.Run("Failure", func(t *testing.T) {
-		defer setup(t)()
+		t.Run("FindBySelectors fails and FindDefaultByBuildarch also fails", func(t *testing.T) {
+			defer setup(t)()
 
-		t.Skip("TODO")
+			expectedError := assert.AnError
+
+			assignment.EXPECT().
+				FindBySelectors(ctx, inputSelectors).
+				Return(types.Assignment{}, adapter.ErrAssignmentNotFound).
+				Once()
+
+			assignment.EXPECT().
+				FindDefaultByBuildarch(ctx, inputSelectors.Buildarch).
+				Return(types.Assignment{}, expectedError).
+				Once()
+
+			actual, err := ipxe.FindProfileAndRender(ctx, inputSelectors)
+			assert.Error(t, err)
+			assert.ErrorIs(t, err, expectedError)
+			assert.ErrorIs(t, err, controller.ErrIPXEFindProfileAndRender)
+			assert.Nil(t, actual)
+		})
+
+		t.Run("FindBySelectors fails with non-ErrAssignmentNotFound error", func(t *testing.T) {
+			defer setup(t)()
+
+			expectedError := assert.AnError
+
+			assignment.EXPECT().
+				FindBySelectors(ctx, inputSelectors).
+				Return(types.Assignment{}, expectedError).
+				Once()
+
+			actual, err := ipxe.FindProfileAndRender(ctx, inputSelectors)
+			assert.Error(t, err)
+			assert.ErrorIs(t, err, expectedError)
+			assert.ErrorIs(t, err, controller.ErrIPXEFindProfileAndRender)
+			assert.Nil(t, actual)
+		})
+
+		t.Run("Profile.Get fails", func(t *testing.T) {
+			defer setup(t)()
+
+			expectedProfileName := "test-profile"
+			expectedError := assert.AnError
+
+			expectedAssignment := types.Assignment{
+				Name:        "test-assignment",
+				ProfileName: expectedProfileName,
+			}
+
+			assignment.EXPECT().
+				FindBySelectors(ctx, inputSelectors).
+				Return(expectedAssignment, nil).
+				Once()
+
+			profile.EXPECT().
+				Get(ctx, expectedProfileName).
+				Return(types.Profile{}, expectedError).
+				Once()
+
+			actual, err := ipxe.FindProfileAndRender(ctx, inputSelectors)
+			assert.Error(t, err)
+			assert.ErrorIs(t, err, expectedError)
+			assert.ErrorIs(t, err, controller.ErrIPXEFindProfileAndRender)
+			assert.Nil(t, actual)
+		})
+
+		t.Run("ResolveAndTransformBatch fails", func(t *testing.T) {
+			defer setup(t)()
+
+			expectedProfileName := "test-profile"
+			expectedError := assert.AnError
+
+			expectedAssignment := types.Assignment{
+				Name:        "test-assignment",
+				ProfileName: expectedProfileName,
+			}
+
+			expectedProfile := types.Profile{
+				IPXETemplate: "kernel",
+			}
+
+			assignment.EXPECT().
+				FindBySelectors(ctx, inputSelectors).
+				Return(expectedAssignment, nil).
+				Once()
+
+			profile.EXPECT().
+				Get(ctx, expectedProfileName).
+				Return(expectedProfile, nil).
+				Once()
+
+			mux.EXPECT().
+				ResolveAndTransformBatch(
+					ctx,
+					expectedProfile.AdditionalContent,
+					inputSelectors,
+					mock.AnythingOfType("controller.ResolveTransformBatchOption"),
+				).
+				Return(nil, expectedError).
+				Once()
+
+			actual, err := ipxe.FindProfileAndRender(ctx, inputSelectors)
+			assert.Error(t, err)
+			assert.ErrorIs(t, err, expectedError)
+			assert.ErrorIs(t, err, controller.ErrIPXEFindProfileAndRender)
+			assert.Nil(t, actual)
+		})
+
+		t.Run("Template parsing fails", func(t *testing.T) {
+			defer setup(t)()
+
+			expectedProfileName := "test-profile"
+			expectedResolvedContent := make(map[string][]byte)
+
+			expectedAssignment := types.Assignment{
+				Name:        "test-assignment",
+				ProfileName: expectedProfileName,
+			}
+
+			// Invalid Go template syntax - unclosed action
+			expectedProfile := types.Profile{
+				IPXETemplate: "kernel {{ .config",
+			}
+
+			assignment.EXPECT().
+				FindBySelectors(ctx, inputSelectors).
+				Return(expectedAssignment, nil).
+				Once()
+
+			profile.EXPECT().
+				Get(ctx, expectedProfileName).
+				Return(expectedProfile, nil).
+				Once()
+
+			mux.EXPECT().
+				ResolveAndTransformBatch(
+					ctx,
+					expectedProfile.AdditionalContent,
+					inputSelectors,
+					mock.AnythingOfType("controller.ResolveTransformBatchOption"),
+				).
+				Return(expectedResolvedContent, nil).
+				Once()
+
+			actual, err := ipxe.FindProfileAndRender(ctx, inputSelectors)
+			assert.Error(t, err)
+			assert.ErrorIs(t, err, controller.ErrIPXEFindProfileAndRender)
+			assert.Contains(t, err.Error(), "unclosed action")
+			assert.Nil(t, actual)
+		})
 	})
 }
 

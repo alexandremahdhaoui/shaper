@@ -1,0 +1,14 @@
+apiVersion: shaper.amahdha.com/v1alpha1
+kind: Assignment
+metadata:
+  name: invalid-assignment-uuid
+  namespace: default
+spec:
+  subjectSelectors:
+    buildarch:
+      - arm64
+    uuidList:
+      - not-a-valid-uuid
+      - another-invalid-uuid
+  profileName: test-profile
+  isDefault: false

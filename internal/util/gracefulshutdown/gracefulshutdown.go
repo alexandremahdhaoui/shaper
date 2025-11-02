@@ -33,8 +33,8 @@ type GracefulShutdown struct {
 	cancel context.CancelFunc
 	name   string
 
-	mu sync.Mutex
-	wg *sync.WaitGroup
+	once sync.Once
+	wg   *sync.WaitGroup
 
 	// exitFunc allows injecting exit behavior for testing
 	exitFunc func(int)
@@ -75,24 +75,20 @@ func New(name string) *GracefulShutdown {
 
 // Shutdown shuts down the application gracefully.
 func (s *GracefulShutdown) Shutdown(exitCode int) {
-	// 1. Try to lock the GracefulShutdown struct. This oneliner ensures Shutdown is idempotent.
-	if !s.mu.TryLock() {
-		return
-	}
+	// Use sync.Once to ensure shutdown logic only executes once, even if called multiple times.
+	s.once.Do(func() {
+		// 1. Print a log line.
+		slog.InfoContext(s.ctx, fmt.Sprintf("⌛ gracefully shutting down %s", s.name))
 
-	defer s.mu.Unlock() // NB: there isn't really a point to release the lock.
+		// 2. Cancel the context.
+		s.cancel()
 
-	// 2. Print a log line.
-	slog.InfoContext(s.ctx, fmt.Sprintf("⌛ gracefully shutting down %s", s.name))
+		// 3. Wait until all goroutines which incremented the wait group are done.
+		s.wg.Wait()
 
-	// 3. Cancel the context.
-	s.cancel()
-
-	// 4. Wait until all goroutines which incremented the wait group are done.
-	s.wg.Wait()
-
-	// 5. Exit using the injected function.
-	s.exitFunc(exitCode)
+		// 4. Exit using the injected function.
+		s.exitFunc(exitCode)
+	})
 }
 
 // Context returns the context of the graceful shutdown.

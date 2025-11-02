@@ -1,0 +1,17 @@
+apiVersion: shaper.amahdha.com/v1alpha1
+kind: Profile
+metadata:
+  name: invalid-profile-multiple-content
+  namespace: default
+spec:
+  ipxeTemplate: |
+    #!ipxe
+    echo This profile has multiple content sources (invalid)
+  additionalContent:
+    - name: config
+      exposed: true
+      # Both inline and webhook specified - should be rejected
+      inline: "some inline content"
+      webhook:
+        url: https://example.com/config
+      postTransformations: []

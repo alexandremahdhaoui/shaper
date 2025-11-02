@@ -55,7 +55,7 @@ var (
 	}()
 
 	buildarchToLabel = map[Buildarch]string{
-		Arm32: Arm64BuildarchLabelSelector,
+		Arm32: Arm32BuildarchLabelSelector,
 		Arm64: Arm64BuildarchLabelSelector,
 		I386:  I386BuildarchLabelSelector,
 		X8664: X8664BuildarchLabelSelector,

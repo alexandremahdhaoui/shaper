@@ -1,0 +1,14 @@
+apiVersion: shaper.amahdha.com/v1alpha1
+kind: Assignment
+metadata:
+  name: valid-assignment
+  namespace: default
+spec:
+  subjectSelectors:
+    buildarch:
+      - arm64
+    uuidList:
+      - 47c6da67-7477-4970-aa03-84e48ff4f6ad
+      - 3f5f3c39-584e-4c7c-b6ff-137e1aaa7175
+  profileName: test-profile
+  isDefault: false

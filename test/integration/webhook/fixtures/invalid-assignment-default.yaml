@@ -1,0 +1,13 @@
+apiVersion: shaper.amahdha.com/v1alpha1
+kind: Assignment
+metadata:
+  name: invalid-assignment-default
+  namespace: default
+spec:
+  subjectSelectors:
+    buildarch:
+      - arm64
+    uuidList:
+      - 47c6da67-7477-4970-aa03-84e48ff4f6ad
+  profileName: test-profile
+  isDefault: true  # Default assignments cannot have UUID selectors

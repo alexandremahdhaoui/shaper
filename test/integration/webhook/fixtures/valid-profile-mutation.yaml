@@ -1,0 +1,32 @@
+apiVersion: shaper.amahdha.com/v1alpha1
+kind: Profile
+metadata:
+  name: valid-profile-mutation
+  namespace: default
+spec:
+  ipxeTemplate: |
+    #!ipxe
+    echo Testing mutation - UUIDs should be added for exposed content
+    echo Ignition: {{ .AdditionalContent.ignition-config }}
+    echo Cloud-init: {{ .AdditionalContent.cloud-init }}
+  additionalContent:
+    - name: ignition-config
+      exposed: true
+      inline: |
+        {
+          "ignition": {
+            "version": "3.0.0"
+          }
+        }
+      postTransformations: []
+    - name: cloud-init
+      exposed: true
+      inline: |
+        #cloud-config
+        runcmd:
+          - echo "Hello World"
+      postTransformations: []
+    - name: internal-param
+      exposed: false
+      inline: "not exposed, no UUID label"
+      postTransformations: []

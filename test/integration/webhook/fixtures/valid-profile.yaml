@@ -1,0 +1,21 @@
+apiVersion: shaper.amahdha.com/v1alpha1
+kind: Profile
+metadata:
+  name: valid-profile
+  namespace: default
+spec:
+  ipxeTemplate: |
+    #!ipxe
+    echo Booting from profile: valid-profile
+    echo Config URL: {{ .AdditionalContent.ignition }}
+    chain http://boot.example.com/boot
+  additionalContent:
+    - name: ignition
+      exposed: true
+      inline: |
+        {
+          "ignition": {
+            "version": "3.0.0"
+          }
+        }
+      postTransformations: []

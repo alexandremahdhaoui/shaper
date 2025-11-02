@@ -1,0 +1,104 @@
+# Copyright 2024 Alexandre Mahdhaoui
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "shaper-webhooks.fullname" . }}
+  labels:
+    {{- include "shaper-webhooks.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "shaper-webhooks.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "shaper-webhooks.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "shaper-webhooks.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: shaper-webhook
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - name: webhook
+          containerPort: {{ .Values.webhookServer.port }}
+          protocol: TCP
+        - name: probes
+          containerPort: {{ .Values.probesServer.port }}
+          protocol: TCP
+        - name: metrics
+          containerPort: {{ .Values.metricsServer.port }}
+          protocol: TCP
+        env:
+        - name: SHAPER_WEBHOOK_CONFIG_PATH
+          value: /etc/shaper-webhook/config.yaml
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.probesServer.livenessPath }}
+            port: probes
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.probesServer.readinessPath }}
+            port: probes
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          {{- toYaml .Values.resources | nindent 12 }}
+        volumeMounts:
+        - name: cert
+          mountPath: {{ .Values.webhookServer.certDir }}
+          readOnly: true
+        - name: config
+          mountPath: /etc/shaper-webhook
+          readOnly: true
+      volumes:
+      - name: cert
+        secret:
+          secretName: {{ include "shaper-webhooks.fullname" . }}-cert
+      - name: config
+        configMap:
+          name: {{ include "shaper-webhooks.fullname" . }}-config
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
