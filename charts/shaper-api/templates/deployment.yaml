@@ -15,16 +15,16 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "shaper.fullname" . }}
+  name: {{ include "shaper-api.fullname" . }}
   labels:
-    {{- include "shaper.labels" . | nindent 4 }}
+    {{- include "shaper-api.labels" . | nindent 4 }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
   selector:
     matchLabels:
-      {{- include "shaper.selectorLabels" . | nindent 6 }}
+      {{- include "shaper-api.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -32,7 +32,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        {{- include "shaper.labels" . | nindent 8 }}
+        {{- include "shaper-api.labels" . | nindent 8 }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -41,7 +41,7 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "shaper.serviceAccountName" . }}
+      serviceAccountName: {{ include "shaper-api.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
@@ -50,28 +50,43 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: IPXER_CONFIG_PATH
+              value: /etc/shaper/config.json
           ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
+            - name: api
+              containerPort: {{ .Values.config.apiServer.port }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.config.metricsServer.port }}
+              protocol: TCP
+            - name: probes
+              containerPort: {{ .Values.config.probesServer.port }}
               protocol: TCP
           livenessProbe:
             httpGet:
-              path: /
-              port: http
+              path: {{ .Values.config.probesServer.livenessPath }}
+              port: {{ .Values.config.probesServer.port }}
           readinessProbe:
             httpGet:
-              path: /
-              port: http
+              path: {{ .Values.config.probesServer.readinessPath }}
+              port: {{ .Values.config.probesServer.port }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- with .Values.volumeMounts }}
           volumeMounts:
+            - name: config
+              mountPath: /etc/shaper
+              readOnly: true
+            {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
-          {{- end }}
-      {{- with .Values.volumes }}
+            {{- end }}
       volumes:
+        - name: config
+          configMap:
+            name: {{ include "shaper-api.fullname" . }}-config
+        {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

@@ -49,7 +49,8 @@ YQ_VERSION             := v4.44.5
 
 CONTAINER_ENGINE   ?= docker
 KIND_BINARY        ?= kind
-KIND_BINARY_PREFIX ?= sudo
+# unsetting KIND_BINARY_PREFIX
+KIND_BINARY_PREFIX ?=
 
 KINDENV_ENVS := KIND_BINARY_PREFIX="$(KIND_BINARY_PREFIX)" KIND_BINARY="$(KIND_BINARY)"
 
@@ -69,7 +70,7 @@ OAPI_CODEGEN_HELPER := OAPI_CODEGEN="$(OAPI_CODEGEN)" $(TOOLING)/oapi-codegen-he
 
 CLEAN_MOCKS := rm -rf ./internal/util/mocks
 
-KUBECONFIG := $(shell $(YQ) '.kindenv.kubeconfigPath' .project.yaml)
+KUBECONFIG := $(abspath $(shell $(YQ) '.kindenv.kubeconfigPath' .project.yaml))
 
 .PHONY: modules
 modules: ## Run go mod tidy
@@ -170,10 +171,6 @@ test-unit:
 .PHONY: test-integration
 test-integration:
 	GOTESTSUM="$(GOTESTSUM)" TEST_TAG=integration ./hack/test-go.sh
-
-.PHONY: test-webhook-integration
-test-webhook-integration: ## Run webhook integration tests (requires KUBECONFIG)
-	go test -v ./test/integration/webhook/...
 
 .PHONY: test-e2e
 test-e2e:

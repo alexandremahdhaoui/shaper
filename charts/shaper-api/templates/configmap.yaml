@@ -12,16 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-{{- if .Values.serviceAccount.create }}
 apiVersion: v1
-kind: ServiceAccount
+kind: ConfigMap
 metadata:
-  name: {{ include "shaper-webhooks.serviceAccountName" . }}
+  name: {{ include "shaper-api.fullname" . }}-config
   labels:
-    {{- include "shaper-webhooks.labels" . | nindent 4 }}
-  {{- with .Values.serviceAccount.annotations }}
-  annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
-automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
-{{- end }}
+    {{- include "shaper-api.labels" . | nindent 4 }}
+data:
+  config.json: |
+    {{ .Values.config | toJson | nindent 4 }}

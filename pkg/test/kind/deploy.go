@@ -18,6 +18,11 @@ var (
 	ErrWaitForReady        = errors.New("timeout waiting for pods to be ready")
 	ErrKubectlNotInstalled = errors.New("kubectl command not found - please install kubectl")
 	ErrCheckPodStatus      = errors.New("failed to check pod status")
+	ErrHelmNotInstalled    = errors.New("helm command not found - please install helm")
+	ErrHelmInstall         = errors.New("failed to install helm chart")
+	ErrHelmUninstall       = errors.New("failed to uninstall helm release")
+	ErrRelease             = errors.New("release name is required")
+	ErrChartPath           = errors.New("chart path is required")
 )
 
 // DeployConfig contains shaper deployment configuration
@@ -265,4 +270,142 @@ func DeleteManifest(kubeconfig, namespace, manifestPath string) error {
 	}
 
 	return nil
+}
+
+// HelmConfig contains helm chart installation configuration
+type HelmConfig struct {
+	Kubeconfig  string            // Path to kubeconfig file
+	Namespace   string            // Kubernetes namespace
+	ReleaseName string            // Helm release name
+	ChartPath   string            // Path to helm chart directory
+	Values      map[string]string // Values to override (--set key=value)
+	ValuesFiles []string          // Paths to values files (-f file.yaml)
+	WaitTimeout time.Duration     // Timeout for waiting for resources
+}
+
+// IsHelmInstalled checks if helm is installed
+func IsHelmInstalled() bool {
+	_, err := exec.LookPath("helm")
+	return err == nil
+}
+
+// HelmInstall installs a helm chart
+func HelmInstall(config HelmConfig) error {
+	if config.Kubeconfig == "" {
+		return ErrKubeconfigRequired
+	}
+	if config.Namespace == "" {
+		return ErrNamespaceRequired
+	}
+	if config.ReleaseName == "" {
+		return ErrRelease
+	}
+	if config.ChartPath == "" {
+		return ErrChartPath
+	}
+
+	if !IsHelmInstalled() {
+		return ErrHelmNotInstalled
+	}
+
+	// Build helm install command
+	args := []string{
+		"install", config.ReleaseName, config.ChartPath,
+		"--kubeconfig", config.Kubeconfig,
+		"--namespace", config.Namespace,
+		"--create-namespace",
+	}
+
+	// Add values files
+	for _, vf := range config.ValuesFiles {
+		args = append(args, "-f", vf)
+	}
+
+	// Add inline values
+	for k, v := range config.Values {
+		args = append(args, "--set", fmt.Sprintf("%s=%s", k, v))
+	}
+
+	// Add wait timeout
+	if config.WaitTimeout > 0 {
+		args = append(args, "--wait", "--timeout", config.WaitTimeout.String())
+	}
+
+	cmd := exec.Command("helm", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w: %v, output: %s", ErrHelmInstall, err, string(output))
+	}
+
+	return nil
+}
+
+// HelmUninstall uninstalls a helm release
+func HelmUninstall(kubeconfig, namespace, releaseName string) error {
+	if kubeconfig == "" {
+		return ErrKubeconfigRequired
+	}
+	if namespace == "" {
+		return ErrNamespaceRequired
+	}
+	if releaseName == "" {
+		return ErrRelease
+	}
+
+	if !IsHelmInstalled() {
+		return ErrHelmNotInstalled
+	}
+
+	cmd := exec.Command("helm", "uninstall", releaseName,
+		"--kubeconfig", kubeconfig,
+		"--namespace", namespace,
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w: %v, output: %s", ErrHelmUninstall, err, string(output))
+	}
+
+	return nil
+}
+
+// PortForwardService sets up port forwarding for a service
+// Returns a cleanup function that should be called to stop port forwarding
+func PortForwardService(kubeconfig, namespace, serviceName, localPort, remotePort string) (cleanup func(), err error) {
+	if kubeconfig == "" {
+		return nil, ErrKubeconfigRequired
+	}
+	if namespace == "" {
+		return nil, ErrNamespaceRequired
+	}
+
+	// Get pod name for the service
+	podCmd := exec.Command("kubectl", "--kubeconfig", kubeconfig,
+		"-n", namespace, "get", "pods",
+		"-l", fmt.Sprintf("app.kubernetes.io/name=%s", serviceName),
+		"-o", "jsonpath={.items[0].metadata.name}")
+	podName, err := podCmd.CombinedOutput()
+	if err != nil || len(podName) == 0 {
+		return nil, fmt.Errorf("failed to find pod for service %s: %v", serviceName, err)
+	}
+
+	// Start port forwarding in background
+	portForward := fmt.Sprintf("%s:%s", localPort, remotePort)
+	cmd := exec.Command("kubectl", "--kubeconfig", kubeconfig,
+		"-n", namespace, "port-forward", string(podName), portForward)
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start port forwarding: %v", err)
+	}
+
+	// Wait a bit for port forwarding to establish
+	time.Sleep(2 * time.Second)
+
+	cleanup = func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+	}
+
+	return cleanup, nil
 }

@@ -13,8 +13,8 @@
 # limitations under the License.
 
 apiVersion: v2
-name: shaper
-description: A Helm chart for Kubernetes
+name: shaper-api
+description: A Helm chart for deploying shaper-api, a Kubernetes-native iPXE boot server
 
 # A chart can be either an 'application' or a 'library' chart.
 #

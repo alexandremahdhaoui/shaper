@@ -233,7 +233,7 @@ graph TB
   - `cmd/shaper-webhook/probes.go:1-26` - Health probes
   - `cmd/shaper-webhook/metrics.go:1-20` - Metrics server
   - `charts/shaper-webhooks/` - Helm chart for deployment
-  - `test/integration/webhook/` - Integration tests
+  - `internal/driver/webhook/webhook_integration_test.go` - Integration tests
 - **Implementation Notes**:
   - Fully integrated with `internal/driver/webhook` validation/mutation logic
   - TLS certificate management via cert-manager

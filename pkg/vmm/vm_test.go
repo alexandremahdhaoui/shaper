@@ -1,4 +1,6 @@
-//go:build integration
+//go:build e2e
+
+// marking these tests as E2E because they are quite slow
 
 package vmm_test
 

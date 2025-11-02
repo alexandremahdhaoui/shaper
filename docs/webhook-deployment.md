@@ -150,10 +150,24 @@ EOF
 
 ```bash
 # Create an assignment and check that labels are added
-kubectl apply -f test/integration/webhook/fixtures/valid-assignment.yaml
+cat <<EOF | kubectl apply -f -
+apiVersion: shaper.amahdha.com/v1alpha1
+kind: Assignment
+metadata:
+  name: test-mutation
+  namespace: default
+spec:
+  subjectSelectors:
+    buildarch:
+      - arm64
+    uuidList:
+      - 47c6da67-7477-4970-aa03-84e48ff4f6ad
+  profileName: test-profile
+  isDefault: false
+EOF
 
 # Check labels were added by mutating webhook
-kubectl get assignment valid-assignment -o yaml | grep -A 10 labels:
+kubectl get assignment test-mutation -o yaml | grep -A 10 labels:
 # Should see UUID labels like: uuid.shaper.amahdha.com/<uuid>: ""
 ```
 
@@ -260,6 +274,6 @@ helm install shaper-webhooks ./charts/shaper-webhooks \
 
 ## See Also
 
-- [Integration Tests](../test/integration/webhook/README.md)
+- [Integration Tests](../internal/driver/webhook/webhook_integration_test.go) - See `webhook_integration_test.go` for integration test examples
 - [Configuration Example](../examples/shaper-webhook.example.yaml)
 - [Helm Chart Values](../charts/shaper-webhooks/values.yaml)
