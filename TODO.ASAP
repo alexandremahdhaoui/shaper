@@ -1,0 +1,9 @@
+# This repository is too convoluted.
+
+-> To simplify it: create another repo and start again from scratch.
+
+NOTES:
+- Start from the e2e tests, and work backwards.
+- Fake adapters to simplify integration/functional/e2e tests.
+- Use the http package from the standard library instead of "echo". 
+- Do not create unecessary indirections.

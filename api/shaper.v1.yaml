@@ -1,0 +1,282 @@
+# Copyright 2024 Alexandre Mahdhaoui
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+openapi: 3.0.3
+
+info:
+  title: iPXE API
+  description: This is the API for an iPXE Server.
+  # termsOfService: http://example.com/terms/
+  contact:
+    name: Alexandre Mahdhaoui
+    url: https://github.com/alexandremahdhaoui/shaper
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+  version: 1.0.0
+
+servers: []
+
+# ------------------------------------------------------------ PATHS ------------------------------------------------- #
+paths:
+  # ---------------------------------------------------------- /boot.ipxe -------------------------------------------- #
+  /boot.ipxe:
+    get:
+      summary: Retrieve an iPXE config to chainload to "/ipxe?labels=values"
+      operationId: getIPXEBootstrap
+      tags:
+        - ipxe
+      responses:
+        200:
+          $ref: '#/components/responses/iPXE'
+        400:
+          $ref: '#/components/responses/400'
+        401:
+          $ref: '#/components/responses/401'
+        403:
+          $ref: '#/components/responses/403'
+        404:
+          $ref: '#/components/responses/404'
+        500:
+          $ref: '#/components/responses/500'
+        503:
+          $ref: '#/components/responses/503'
+
+  # /boot.ipxe.0:
+
+  # ---------------------------------------------------------- /ipxe ------------------------------------------------- #
+  /ipxe:  # what about required parameters such as Arch/Location...
+          # -> location maybe specified by an authoritative process, such as the iPXE server itself.
+          # NB: a lot of information cannot be obtained on pxe boot and require the physical server to pass information,
+          #     during the registration phase, to the state of the PSM.
+    get:
+      summary: Retrieve an iPXE manifest by selectors
+      operationId: getIPXEBySelectors
+      tags:
+        - ipxe
+      parameters:
+        - $ref: '#/components/parameters/uuidSelector'
+        - $ref: '#/components/parameters/buildarchSelector'
+      responses:
+        200:
+          $ref: '#/components/responses/iPXE'
+        400:
+          $ref: '#/components/responses/400'
+        401:
+          $ref: '#/components/responses/401'
+        403:
+          $ref: '#/components/responses/403'
+        404:
+          $ref: '#/components/responses/404'
+        500:
+          $ref: '#/components/responses/500'
+        503:
+          $ref: '#/components/responses/503'
+
+  # ---------------------------------------------------------- /content/{contentID} ---------------- #
+  /content/{contentID}:
+    get:
+      summary: Retrieve dynamically a content by its ID.
+      operationId: getContentByID
+      tags:
+        - content
+      parameters:
+        - in: path
+          name: contentID
+          description: Unique identifier of the content.
+          required: true
+          schema:
+            $ref: '#/components/schemas/UUID'
+        - $ref: '#/components/parameters/uuidSelector'
+        - $ref: '#/components/parameters/buildarchSelector'
+      responses:
+        200:
+          $ref: '#/components/responses/content'
+        400:
+          $ref: '#/components/responses/400'
+        401:
+          $ref: '#/components/responses/401'
+        403:
+          $ref: '#/components/responses/403'
+        404:
+          $ref: '#/components/responses/404'
+        500:
+          $ref: '#/components/responses/500'
+        503:
+          $ref: '#/components/responses/503'
+
+# ------------------------------------------------------------ API --------------------------------------------------- #
+components:
+
+  # ---------------------------------------------------------- PARAMETERS -------------------------------------------- #
+  parameters:
+
+    # -------------------------------------------------------- uuidSelector ------------------------------------------ #
+    uuidSelector:
+      in: query
+      name: uuid
+      schema:
+        $ref: '#/components/schemas/UUID'
+      required: true
+
+    # -------------------------------------------------------- buildarchSelector ------------------------------------- #
+    buildarchSelector:
+      in: query
+      name: buildarch
+      schema:
+        type: string
+        enum:
+          - i386
+          - x86_64
+          - arm32
+          - arm64
+      required: true
+
+  # ---------------------------------------------------------- SCHEMAS ----------------------------------------------- #
+  schemas:
+
+    # -------------------------------------------------------- iPXE -------------------------------------------------- #
+    iPXE:
+      type: string
+      description: An iPXE manifest.
+      example: |
+        #!ipxe
+        
+        set STREAM stable
+        set VERSION 39.20240112.3.0
+        set CONFIGURL https://example.com/config.ign
+        
+        set BASEURL https://builds.coreos.fedoraproject.org/prod/streams/${STREAM}/builds/${VERSION}/x86_64
+        
+        kernel ${BASEURL}/fedora-coreos-${VERSION}-live-kernel-x86_64 initrd=main coreos.live.rootfs_url=${BASEURL}/fedora-coreos-${VERSION}-live-rootfs.x86_64.img ignition.firstboot ignition.platform.id=metal ignition.config.url=${CONFIGURL}
+        initrd --name main ${BASEURL}/fedora-coreos-${VERSION}-live-initramfs.x86_64.img
+        
+        boot
+
+    # --------------------------------------------------------- CONTENT ---------------------------------------------- #
+    content:
+      type: string
+      description: Any content, e.g. a butane/ignition or cloud-init manifest.
+      example: |
+        variant: fcos
+        version: 1.4.0
+        passwd:
+          users:
+            - name: core
+              ssh_authorized_keys:
+                - ssh-rsa AAAA...
+
+    #--------------------------------------------------------- UUID -------------------------------------------------- #
+    UUID:
+      type: string
+      format: uuid
+      example: "123e4567-e89b-12d3-a456-426614174000"
+
+    #--------------------------------------------------------- ERROR ------------------------------------------------- #
+    Error:
+      type: object
+      properties:
+        code:
+          type: integer
+          format: int32
+        message:
+          type: string
+      required:
+        - code
+        - message
+
+  # ---------------------------------------------------------- RESPONSES --------------------------------------------- #
+  responses:
+
+    # -------------------------------------------------------- iPXE -------------------------------------------------- #
+    iPXE:
+      description: Successfully retrieved iPXE manifest.
+      content:
+        text/plain:
+          schema:
+            $ref: '#/components/schemas/iPXE'
+
+    # -------------------------------------------------------- CONTENT ----------------------------------------------- #
+    content:
+      description: Successfully retrieved content.
+      content:
+        text/plain:
+          schema:
+            $ref: '#/components/schemas/content'
+
+    # -------------------------------------------------------- 400 --------------------------------------------------- #
+    400:
+      description: Bad Request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: 400
+            message: Bad request, please check your input
+
+    # -------------------------------------------------------- 401 --------------------------------------------------- #
+    401:
+      description: Authorization information is missing or invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: 401
+            message: Unauthorized, please provide valid authentication inputs
+
+    # -------------------------------------------------------- 403 --------------------------------------------------- #
+    403:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: 403
+            message: Forbidden, you do not have permission to access this resource
+
+    # -------------------------------------------------------- 404 --------------------------------------------------- #
+    404:
+      description: A specified resource is not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: 404
+            message: The requested resource was not found
+
+    # -------------------------------------------------------- 500 --------------------------------------------------- #
+    500:
+      description: Unexpected internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: 500
+            message: Internal server error, please try again later
+
+    # -------------------------------------------------------- 503 --------------------------------------------------- #
+    503:
+      description: Service unavailable.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: 503
+            message: Service unavailable, please try again later

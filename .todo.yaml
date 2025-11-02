@@ -1,0 +1,101 @@
+# Copyright 2024 Alexandre Mahdhaoui
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+---
+FIX_ASAP:
+  - Fix the CR in the E2E test
+
+refactoring:
+  IMPORTANT: |-
+    For the `/config` endpoint, don't use the profile name (only use the config UUID).
+    Query the config by UUID by setting the uuid into a label to the profile.
+    The key will hold the uuid; the value will be set to the additionalContent's name.
+
+    => Ongoing
+
+ci:
+  coverage: |-
+    Add a coverage GitHub Action, e.g.: https://github.com/vladopajic/go-test-coverage
+
+misc:
+  "*.go":
+    - wrap errors
+
+  Log: add logger (use slog)
+
+  CachePolicies:
+    - allow caching for objectRef and webhook content.
+    - create multiple caching strategies such as lru, timeout and allow users to choose between multiple strategies.
+    - the NoCache policy should be enabled by default. Users who wants to optimize can optimize.
+    - NB: implement the cache as lru or a ring buffer of marshalled results (or a LRU+Ring) to avoid uncontrolled mem consumptions. Also allow other strategies such as timeouts e.g. by creating a small DS to store pointers to cache entries that should be deleted after a timestamp.
+
+impl:
+  - ./cmd/shaper-webhook:
+  - ./internal/driver/webhook:
+      - assignment
+      - profile
+
+fakes:
+  adapterfake:
+    - assignment
+    - profile
+    - resolver
+    - transformer
+
+test:
+  fix-unit-tests:
+    adapter:
+    controller:
+
+  unit:
+    driver:
+      server:
+        - server
+      webhook:
+        - assignment
+        - profile
+
+  integration:
+    TODO:
+      - define integration
+      - scope: |
+          - Kind or "k8s w/o kubelet" (kwok)
+          - Integrate into real k8s cluster (kind or kwok)
+          - But integration test how each components integrates with k8s or other mockable components (e.g. database etc...).
+
+  functional-tests:
+    TODO:
+      - define functional testing for this project.
+      - scope: |
+          kind/kwok + fakes.
+
+          Test the whole application as a "function". Functional tests does not care about side-effects.
+          E.g. if the application was responsible for provisioning a kubernetes cluster, the tests wouldn't try to
+            connect to the cluster to assert success. It would only verify the "output" (e.g. a json response) is
+            is as expected.
+
+          The functional tests will create Kubernetes Resource, send API requests to trigger the application and
+          verify the results.
+          It may also fake other system it may integrate with.
+
+  e2e:
+    TODO:
+      - define e2e
+      - scope: create VMs + DHCP server + a kubeadm cluster.
+      - considerations:
+          - make it quite extensible.
+          - think about e2e on bare metal or cloud provider infrastructures.
+          - use different k8s distros?
+          - use different DHCP server.
+          - NB: don't bother using a different hypervisor than KVM.

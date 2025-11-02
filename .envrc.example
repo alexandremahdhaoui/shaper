@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+
+export IPXER_CONFIG_PATH=.tmp/e2e/config.yaml
+
+cat <<EOF | yq -o json | tee "${IPXER_CONFIG_PATH}"
+assignmentNamespace: shaper
+profileNamespace: shaper
+
+kubeconfigPath: "$(yq '.kindenv.kubeconfigPath' .project.yaml)"
+
+probesServer:
+  livenessPath: /livez
+  readinessPath: /readyz
+  port: 8082
+
+metricsServer:
+  path: /metrics
+  port: 8081
+
+apiServer:
+  port: 8080
+EOF

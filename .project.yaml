@@ -1,0 +1,71 @@
+# Copyright 2024 Alexandre Mahdhaoui
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: shaper
+
+kindenv:
+  kubeconfigPath: .ignore.kindenv.kubeconfig.yaml
+
+# -- localContainerRegistry will create if enabled a container registry in the kindenv using the kubeconfig which path
+#    is defined by {.kindenv.kubeconfigPath}.
+localContainerRegistry:
+  # -- enabled defines whether the local container registry must be created or not.
+  enabled: true
+  # -- creadentialPath defines the output file containing the container registry credentials.
+  credentialPath: .ignore.local-container-registry.yaml
+  # -- path to CA certificate.
+  caCrtPath: .ignore.ca.crt
+  # -- namespace where the local container registry will be deployed.
+  namespace: local-container-registry
+
+oapiCodegenHelper:
+  defaults:
+    # -- sourceDir is the default directory locating the open api specifications.
+    sourceDir: ./api
+    # -- destinationDir is the default local directory where the generated packages will be written to.
+    destinationDir: ./pkg/generated
+
+  specs:
+    # shaper
+    - name: shaper
+      versions:
+        - v1
+      client:
+        enabled: true
+        packageName: shaperclient
+      server:
+        enabled: true
+        packageName: shaperserver
+
+    # webhook-resolver
+    - name: shaper-webhook-resolver
+      versions:
+        - v1
+      client:
+        enabled: true
+        packageName: resolverclient
+      server:
+        enabled: true
+        packageName: resolverserver
+
+    # webhook-transformer
+    - name: shaper-webhook-transformer
+      versions:
+        - v1
+      client:
+        enabled: true
+        packageName: transformerclient
+      server:
+        enabled: true
+        packageName: transformerserver

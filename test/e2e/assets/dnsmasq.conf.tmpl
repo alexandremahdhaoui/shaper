@@ -1,0 +1,42 @@
+strict-order
+user=alexandremahdhaoui
+# pid-file=$DNSMASQ_PID_FILE
+except-interface=lo
+bind-dynamic
+interface=$BRIDGE_IFACE
+dhcp-range=172.16.0.64,172.16.0.254,255.255.255.0
+dhcp-no-override
+dhcp-authoritative
+dhcp-lease-max=253
+dhcp-hostsfile=/dev/null
+addn-hosts=/dev/null
+dhcp-ttl=1
+local-ttl=1
+
+#### LEGACY BELOW
+
+# listen-address=172.16.0.1
+# ----- DHCP CONFIG -----
+# interface=$BRIDGE_IFACE
+# bind-interfaces
+# dhcp-range=172.16.0.64,172.16.0.254,12h
+# dhcp-authoritative
+# dhcp-option=1,172.16.0.0/24
+# dhcp-option=3,172.16.0.1
+# dhcp-option=6,1.1.1.1
+
+# ----- TFTP CONFIG -----
+# enable-tftp
+# tftp-root=$DNSMASQ_TFTP_DIR
+
+# ----- PXE CONFIG -----
+# pxe-service=x86PC,"PXELINUX (BIOS)",bios/pxelinux # BIOS; note that the file name is NOT a typo
+
+# UEFI
+# dhcp-match=set:efi-x86_64,option:client-arch,7
+# dhcp-boot=tag:efi-x86_64,efi64/syslinux.efi
+
+# ----- ENABLE LOGGING -----
+log-queries
+log-debug
+log-facility=$DNSMASQ_LOG
