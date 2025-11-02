@@ -192,11 +192,11 @@ func cmdCreate(artifactStoreDir string) {
 		fmt.Fprintf(os.Stderr, "   Kubeconfig: %s\n", testEnv.Kubeconfig)
 		fmt.Fprintf(os.Stderr, "\n=== TFTP/PXE ===\n")
 		fmt.Fprintf(os.Stderr, "   TFTP Root: %s\n", testEnv.TFTPRoot)
-		fmt.Fprintf(os.Stderr, "   Dnsmasq Config: %s\n", testEnv.DnsmasqConfigPath)
-		if testEnv.DnsmasqProcess != nil && testEnv.DnsmasqProcess.IsRunning() {
-			fmt.Fprintf(os.Stderr, "   Dnsmasq: Running ✓\n")
+		fmt.Fprintf(os.Stderr, "   Dnsmasq ID: %s\n", testEnv.DnsmasqID)
+		if testEnv.DnsmasqID != "" {
+			fmt.Fprintf(os.Stderr, "   Dnsmasq: Configured ✓\n")
 		} else {
-			fmt.Fprintf(os.Stderr, "   Dnsmasq: Not running ✗\n")
+			fmt.Fprintf(os.Stderr, "   Dnsmasq: Not configured ✗\n")
 		}
 		fmt.Fprintf(os.Stderr, "\nNext: Run tests with:\n")
 		fmt.Fprintf(os.Stderr, "   sudo shaper-e2e run %s\n", testEnv.ID)
@@ -334,13 +334,12 @@ func cmdGet(artifactStoreDir string, testID string) {
 	fmt.Fprintf(os.Stderr, "=== Network Infrastructure ===\n")
 	fmt.Fprintf(os.Stderr, "Bridge: %s\n", env.BridgeName)
 	fmt.Fprintf(os.Stderr, "Libvirt Network: %s\n", env.LibvirtNetwork)
-	if env.DnsmasqProcess != nil && env.DnsmasqProcess.IsRunning() {
-		fmt.Fprintf(os.Stderr, "Dnsmasq: Running ✓\n")
+	if env.DnsmasqID != "" {
+		fmt.Fprintf(os.Stderr, "Dnsmasq: Configured (%s) ✓\n", env.DnsmasqID)
 	} else {
-		fmt.Fprintf(os.Stderr, "Dnsmasq: Not running ✗\n")
+		fmt.Fprintf(os.Stderr, "Dnsmasq: Not configured ✗\n")
 	}
-	fmt.Fprintf(os.Stderr, "Dnsmasq Config: %s\n", env.DnsmasqConfigPath)
-	fmt.Fprintf(os.Stderr, "Dnsmasq PID File: %s\n\n", env.DnsmasqPIDFile)
+	fmt.Fprintf(os.Stderr, "TFTP Root: %s\n\n", env.TFTPRoot)
 
 	fmt.Fprintf(os.Stderr, "=== KIND Cluster ===\n")
 	fmt.Fprintf(os.Stderr, "Name: %s\n", env.KindCluster)
@@ -399,14 +398,17 @@ func cmdLogs(artifactStoreDir string, testID string, logType string) {
 			fmt.Println()
 		}
 
-		// Show dnsmasq config
-		if env.DnsmasqConfigPath != "" {
-			fmt.Printf("=== Dnsmasq Config (%s) ===\n", env.DnsmasqConfigPath)
-			content, err := os.ReadFile(env.DnsmasqConfigPath)
+		// Show dnsmasq info
+		if env.DnsmasqID != "" {
+			fmt.Printf("=== Dnsmasq ===\n")
+			fmt.Printf("ID: %s\n", env.DnsmasqID)
+			// Config is managed by DnsmasqManager and stored in /tmp/dnsmasq-<id>.conf
+			configPath := "/tmp/dnsmasq-" + env.DnsmasqID + ".conf"
+			content, err := os.ReadFile(configPath)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: failed to read config file: %v\n", err)
+				fmt.Fprintf(os.Stderr, "Config file not accessible: %v\n", err)
 			} else {
-				fmt.Print(string(content))
+				fmt.Printf("Config:\n%s\n", string(content))
 			}
 		}
 

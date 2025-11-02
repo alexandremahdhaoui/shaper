@@ -1,3 +1,5 @@
+//go:build unit
+
 package kind_test
 
 import (

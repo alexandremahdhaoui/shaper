@@ -155,7 +155,7 @@ func ExecuteIPXEBootTest(config IPXETestConfig) (*IPXETestResult, error) {
 			goto dhcpDone
 		case <-dhcpTicker.C:
 			// Check dnsmasq lease file
-			if config.Env.DnsmasqProcess != nil {
+			if config.Env.DnsmasqID != "" {
 				leaseFile := config.Env.TempDirRoot + "/dnsmasq.leases"
 				if leaseData, err := os.ReadFile(leaseFile); err == nil {
 					if strings.Contains(string(leaseData), config.VMName) {
@@ -267,7 +267,7 @@ httpDone:
 
 // GetDnsmasqLogs retrieves dnsmasq logs from the process
 func GetDnsmasqLogs(env *ShaperTestEnvironment) (string, error) {
-	if env == nil || env.DnsmasqConfigPath == "" {
+	if env == nil || env.DnsmasqID == "" {
 		return "", fmt.Errorf("dnsmasq not configured")
 	}
 

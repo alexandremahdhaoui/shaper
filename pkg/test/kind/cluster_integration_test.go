@@ -3,20 +3,33 @@
 package kind_test
 
 import (
-	"github.com/alexandremahdhaoui/shaper/pkg/test/kind"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/alexandremahdhaoui/shaper/pkg/test/kind"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
 // Integration tests
+//
+// Note: These tests for cluster creation/deletion are designed to test the cluster
+// management functions themselves. When running integration tests that use the shared
+// cluster (created by `make test-setup`), these tests will be skipped since they
+// require creating/destroying clusters.
 
 func TestCreateCluster_Integration(t *testing.T) {
 	if !kind.IsKindInstalled() {
 		t.Skip("KIND not installed")
+	}
+
+	// Skip if using shared test cluster
+	if _, err := os.Stat(getProjectKubeconfigPath(t)); err == nil {
+		t.Skip(
+			"Skipping cluster creation test when using shared test cluster. This test creates its own cluster.",
+		)
 	}
 
 	clusterName := "test-" + uuid.NewString()[:8]
@@ -50,6 +63,13 @@ func TestCreateCluster_Idempotent_Integration(t *testing.T) {
 		t.Skip("KIND not installed")
 	}
 
+	// Skip if using shared test cluster
+	if _, err := os.Stat(getProjectKubeconfigPath(t)); err == nil {
+		t.Skip(
+			"Skipping cluster creation test when using shared test cluster. This test creates its own cluster.",
+		)
+	}
+
 	clusterName := "test-" + uuid.NewString()[:8]
 	kubeconfigPath := filepath.Join(t.TempDir(), "kubeconfig")
 
@@ -76,6 +96,13 @@ func TestCreateCluster_Idempotent_Integration(t *testing.T) {
 func TestDeleteCluster_Integration(t *testing.T) {
 	if !kind.IsKindInstalled() {
 		t.Skip("KIND not installed")
+	}
+
+	// Skip if using shared test cluster
+	if _, err := os.Stat(getProjectKubeconfigPath(t)); err == nil {
+		t.Skip(
+			"Skipping cluster deletion test when using shared test cluster. This test creates and deletes its own cluster.",
+		)
 	}
 
 	clusterName := "test-" + uuid.NewString()[:8]
@@ -108,6 +135,13 @@ func TestDeleteCluster_Idempotent_Integration(t *testing.T) {
 		t.Skip("KIND not installed")
 	}
 
+	// Skip if using shared test cluster
+	if _, err := os.Stat(getProjectKubeconfigPath(t)); err == nil {
+		t.Skip(
+			"Skipping cluster deletion test when using shared test cluster. This test creates and deletes its own cluster.",
+		)
+	}
+
 	clusterName := "test-" + uuid.NewString()[:8]
 
 	config := kind.ClusterConfig{
@@ -131,6 +165,7 @@ func TestClusterExists_NonExistent_Integration(t *testing.T) {
 		t.Skip("KIND not installed")
 	}
 
+	// This test doesn't create/delete clusters, so it can run with shared cluster
 	// Check for cluster that doesn't exist
 	exists, err := kind.ClusterExists("nonexistent-cluster-" + uuid.NewString())
 	require.NoError(t, err)
@@ -140,6 +175,13 @@ func TestClusterExists_NonExistent_Integration(t *testing.T) {
 func TestGetKubeconfig_Integration(t *testing.T) {
 	if !kind.IsKindInstalled() {
 		t.Skip("KIND not installed")
+	}
+
+	// Skip if using shared test cluster - we can't get the cluster name easily from kubeconfig
+	if _, err := os.Stat(getProjectKubeconfigPath(t)); err == nil {
+		t.Skip(
+			"Skipping kubeconfig retrieval test when using shared test cluster. This test creates its own cluster.",
+		)
 	}
 
 	clusterName := "test-" + uuid.NewString()[:8]
@@ -161,4 +203,3 @@ func TestGetKubeconfig_Integration(t *testing.T) {
 	require.Contains(t, kubeconfig, "apiVersion")
 	require.Contains(t, kubeconfig, "clusters")
 }
-

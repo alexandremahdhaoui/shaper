@@ -3,9 +3,12 @@
 package network_test
 
 import (
-	"github.com/alexandremahdhaoui/shaper/pkg/network"
+	"context"
+	"errors"
 	"testing"
 
+	"github.com/alexandremahdhaoui/shaper/pkg/execcontext"
+	"github.com/alexandremahdhaoui/shaper/pkg/network"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
@@ -13,6 +16,11 @@ import (
 // Integration tests for bridge management
 
 func TestCreateBridge_Integration(t *testing.T) {
+	// Create manager with sudo context
+	execCtx := execcontext.New(nil, []string{"sudo"})
+	mgr := network.NewBridgeManager(execCtx)
+	ctx := context.Background()
+
 	// Linux interface names limited to 15 chars
 	bridgeName := "br" + uuid.NewString()[:6]
 	config := network.BridgeConfig{
@@ -21,17 +29,23 @@ func TestCreateBridge_Integration(t *testing.T) {
 	}
 
 	// Create bridge
-	err := network.CreateBridge(config)
+	err := mgr.Create(ctx, config)
 	require.NoError(t, err)
-	defer network.DeleteBridge(bridgeName)
+	defer mgr.Delete(ctx, bridgeName)
 
-	// Verify bridge exists
-	exists, err := network.BridgeExists(bridgeName)
+	// Verify bridge exists using Get
+	info, err := mgr.Get(ctx, bridgeName)
 	require.NoError(t, err)
-	require.True(t, exists)
+	require.NotNil(t, info)
+	require.Equal(t, bridgeName, info.Name)
 }
 
 func TestCreateBridge_Idempotent_Integration(t *testing.T) {
+	// Create manager with sudo context
+	execCtx := execcontext.New(nil, []string{"sudo"})
+	mgr := network.NewBridgeManager(execCtx)
+	ctx := context.Background()
+
 	// Linux interface names limited to 15 chars
 	bridgeName := "br" + uuid.NewString()[:6]
 	config := network.BridgeConfig{
@@ -40,21 +54,26 @@ func TestCreateBridge_Idempotent_Integration(t *testing.T) {
 	}
 
 	// Create bridge first time
-	err := network.CreateBridge(config)
+	err := mgr.Create(ctx, config)
 	require.NoError(t, err)
-	defer network.DeleteBridge(bridgeName)
+	defer mgr.Delete(ctx, bridgeName)
 
-	// Create bridge second time - should not error
-	err = network.CreateBridge(config)
+	// Create bridge second time - should not error (idempotent)
+	err = mgr.Create(ctx, config)
 	require.NoError(t, err)
 
 	// Verify bridge still exists
-	exists, err := network.BridgeExists(bridgeName)
+	info, err := mgr.Get(ctx, bridgeName)
 	require.NoError(t, err)
-	require.True(t, exists)
+	require.NotNil(t, info)
 }
 
 func TestDeleteBridge_Integration(t *testing.T) {
+	// Create manager with sudo context
+	execCtx := execcontext.New(nil, []string{"sudo"})
+	mgr := network.NewBridgeManager(execCtx)
+	ctx := context.Background()
+
 	// Linux interface names limited to 15 chars
 	bridgeName := "br" + uuid.NewString()[:6]
 	config := network.BridgeConfig{
@@ -63,25 +82,30 @@ func TestDeleteBridge_Integration(t *testing.T) {
 	}
 
 	// Create bridge
-	err := network.CreateBridge(config)
+	err := mgr.Create(ctx, config)
 	require.NoError(t, err)
 
 	// Verify it exists
-	exists, err := network.BridgeExists(bridgeName)
+	info, err := mgr.Get(ctx, bridgeName)
 	require.NoError(t, err)
-	require.True(t, exists)
+	require.NotNil(t, info)
 
 	// Delete bridge
-	err = network.DeleteBridge(bridgeName)
+	err = mgr.Delete(ctx, bridgeName)
 	require.NoError(t, err)
 
-	// Verify it's gone
-	exists, err = network.BridgeExists(bridgeName)
-	require.NoError(t, err)
-	require.False(t, exists)
+	// Verify it's gone using Get (should return ErrBridgeNotFound)
+	_, err = mgr.Get(ctx, bridgeName)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, network.ErrBridgeNotFound))
 }
 
-func TestBridgeExists_Integration(t *testing.T) {
+func TestBridgeGet_Integration(t *testing.T) {
+	// Create manager with sudo context
+	execCtx := execcontext.New(nil, []string{"sudo"})
+	mgr := network.NewBridgeManager(execCtx)
+	ctx := context.Background()
+
 	// Linux interface names limited to 15 chars
 	bridgeName := "br" + uuid.NewString()[:6]
 	config := network.BridgeConfig{
@@ -89,18 +113,20 @@ func TestBridgeExists_Integration(t *testing.T) {
 		CIDR: "192.168.203.1/24",
 	}
 
-	// Before creation - should not exist
-	exists, err := network.BridgeExists(bridgeName)
-	require.NoError(t, err)
-	require.False(t, exists)
+	// Before creation - should not exist (ErrBridgeNotFound)
+	_, err := mgr.Get(ctx, bridgeName)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, network.ErrBridgeNotFound))
 
 	// Create bridge
-	err = network.CreateBridge(config)
+	err = mgr.Create(ctx, config)
 	require.NoError(t, err)
-	defer network.DeleteBridge(bridgeName)
+	defer mgr.Delete(ctx, bridgeName)
 
-	// After creation - should exist
-	exists, err = network.BridgeExists(bridgeName)
+	// After creation - should exist and return info
+	info, err := mgr.Get(ctx, bridgeName)
 	require.NoError(t, err)
-	require.True(t, exists)
+	require.NotNil(t, info)
+	require.Equal(t, bridgeName, info.Name)
+	require.Equal(t, config.CIDR, info.CIDR)
 }

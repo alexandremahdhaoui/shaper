@@ -22,29 +22,29 @@ import (
 )
 
 var (
-	errConnectLibvirt          = errors.New("failed to connect to libvirt")
-	errGenerateCloudInitISO    = errors.New("failed to generate cloud-init ISO")
-	errCreateVMDisk            = errors.New("failed to create VM disk")
-	errMarshalDomainXML        = errors.New("failed to marshal domain XML")
-	errDefineDomain            = errors.New("failed to define domain")
-	errCreateDomain            = errors.New("failed to create domain")
-	errGetDomainXML            = errors.New("failed to get domain XML")
-	errGetDomainIP             = errors.New("failed to get domain IP")
-	errLibvirtNotInitialized   = errors.New("libvirt connection is not initialized")
-	errVMNotFound              = errors.New("VM not found")
-	errVMNotRunning            = errors.New("VM not running")
-	errTimeoutWaitingIP        = errors.New("timed out waiting for VM IP address")
-	errGetDomainState          = errors.New("failed to get domain state")
-	errDestroyDomain           = errors.New("failed to destroy domain")
-	errUndefineDomain          = errors.New("failed to undefine domain")
-	errDeleteVMDisk            = errors.New("failed to delete VM disk")
-	errCreateCloudInitDir      = errors.New("failed to create cloud-init config directory")
-	errWriteUserData           = errors.New("failed to write user-data file")
-	errWriteMetaData           = errors.New("failed to write meta-data file")
-	errCreateCloudInitISO      = errors.New("failed to create cloud-init ISO with xorriso")
-	errGetDomainName           = errors.New("failed to get domain name")
-	errCreateStream            = errors.New("failed to create new stream")
-	errOpenConsole             = errors.New("failed to open console")
+	errConnectLibvirt        = errors.New("failed to connect to libvirt")
+	errGenerateCloudInitISO  = errors.New("failed to generate cloud-init ISO")
+	errCreateVMDisk          = errors.New("failed to create VM disk")
+	errMarshalDomainXML      = errors.New("failed to marshal domain XML")
+	errDefineDomain          = errors.New("failed to define domain")
+	errCreateDomain          = errors.New("failed to create domain")
+	errGetDomainXML          = errors.New("failed to get domain XML")
+	errGetDomainIP           = errors.New("failed to get domain IP")
+	errLibvirtNotInitialized = errors.New("libvirt connection is not initialized")
+	errVMNotFound            = errors.New("VM not found")
+	errVMNotRunning          = errors.New("VM not running")
+	errTimeoutWaitingIP      = errors.New("timed out waiting for VM IP address")
+	errGetDomainState        = errors.New("failed to get domain state")
+	errDestroyDomain         = errors.New("failed to destroy domain")
+	errUndefineDomain        = errors.New("failed to undefine domain")
+	errDeleteVMDisk          = errors.New("failed to delete VM disk")
+	errCreateCloudInitDir    = errors.New("failed to create cloud-init config directory")
+	errWriteUserData         = errors.New("failed to write user-data file")
+	errWriteMetaData         = errors.New("failed to write meta-data file")
+	errCreateCloudInitISO    = errors.New("failed to create cloud-init ISO with xorriso")
+	errGetDomainName         = errors.New("failed to get domain name")
+	errCreateStream          = errors.New("failed to create new stream")
+	errOpenConsole           = errors.New("failed to open console")
 )
 
 const (
@@ -600,7 +600,13 @@ func (v *VMM) DestroyVM(ctx execcontext.Context, vmName string) error {
 	cloudInitISOPath := filepath.Join(tempDir, fmt.Sprintf("%s-cloud-init.iso", vmName))
 	if err := os.Remove(cloudInitISOPath); err != nil && !os.IsNotExist(err) {
 		// Log but don't fail - this is just cleanup
-		slog.Debug("failed to delete cloud-init ISO", "path", cloudInitISOPath, "error", err.Error())
+		slog.Debug(
+			"failed to delete cloud-init ISO",
+			"path",
+			cloudInitISOPath,
+			"error",
+			err.Error(),
+		)
 	}
 
 	dom.Free()
@@ -665,7 +671,13 @@ func (v *VMM) GetVMIPAddress(vmName string) (string, error) {
 				libvirt.DOMAIN_INTERFACE_ADDRESSES_SRC_LEASE,
 			)
 			if err != nil {
-				slog.Debug("error listing interface addresses", "vmName", vmName, "error", err.Error())
+				slog.Debug(
+					"error listing interface addresses",
+					"vmName",
+					vmName,
+					"error",
+					err.Error(),
+				)
 				continue
 			}
 
@@ -723,7 +735,13 @@ func (v *VMM) GetConsoleOutput(vmName string) (string, error) {
 						close(readDone)
 						return
 					}
-					slog.Debug("error reading from console stream", "vmName", vmName, "error", err.Error())
+					slog.Debug(
+						"error reading from console stream",
+						"vmName",
+						vmName,
+						"error",
+						err.Error(),
+					)
 					close(readDone)
 					return
 				}

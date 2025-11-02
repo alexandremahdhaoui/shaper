@@ -39,7 +39,11 @@ paths:
         - ipxe
       responses:
         200:
-          $ref: '#/components/responses/iPXE'
+          description: Successfully retrieved iPXE manifest.
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/iPXE'
         400:
           $ref: '#/components/responses/400'
         401:
@@ -57,9 +61,9 @@ paths:
 
   # ---------------------------------------------------------- /ipxe ------------------------------------------------- #
   /ipxe:  # what about required parameters such as Arch/Location...
-          # -> location maybe specified by an authoritative process, such as the iPXE server itself.
-          # NB: a lot of information cannot be obtained on pxe boot and require the physical server to pass information,
-          #     during the registration phase, to the state of the PSM.
+    # -> location maybe specified by an authoritative process, such as the iPXE server itself.
+    # NB: a lot of information cannot be obtained on pxe boot and require the physical server to pass information,
+    #     during the registration phase, to the state of the PSM.
     get:
       summary: Retrieve an iPXE manifest by selectors
       operationId: getIPXEBySelectors
@@ -70,7 +74,11 @@ paths:
         - $ref: '#/components/parameters/buildarchSelector'
       responses:
         200:
-          $ref: '#/components/responses/iPXE'
+          description: Successfully retrieved iPXE manifest.
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/iPXE'
         400:
           $ref: '#/components/responses/400'
         401:
@@ -102,7 +110,11 @@ paths:
         - $ref: '#/components/parameters/buildarchSelector'
       responses:
         200:
-          $ref: '#/components/responses/content'
+          description: Successfully retrieved content.
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/content'
         400:
           $ref: '#/components/responses/400'
         401:
@@ -152,16 +164,16 @@ components:
       description: An iPXE manifest.
       example: |
         #!ipxe
-        
+
         set STREAM stable
         set VERSION 39.20240112.3.0
         set CONFIGURL https://example.com/config.ign
-        
+
         set BASEURL https://builds.coreos.fedoraproject.org/prod/streams/${STREAM}/builds/${VERSION}/x86_64
-        
+
         kernel ${BASEURL}/fedora-coreos-${VERSION}-live-kernel-x86_64 initrd=main coreos.live.rootfs_url=${BASEURL}/fedora-coreos-${VERSION}-live-rootfs.x86_64.img ignition.firstboot ignition.platform.id=metal ignition.config.url=${CONFIGURL}
         initrd --name main ${BASEURL}/fedora-coreos-${VERSION}-live-initramfs.x86_64.img
-        
+
         boot
 
     # --------------------------------------------------------- CONTENT ---------------------------------------------- #

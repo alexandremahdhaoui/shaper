@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -53,11 +54,9 @@ type ShaperTestEnvironment struct {
 	ID string
 
 	// Network infrastructure
-	BridgeName       string
-	LibvirtNetwork   string
-	DnsmasqProcess   *network.DnsmasqProcess
-	DnsmasqConfigPath string
-	DnsmasqPIDFile    string
+	BridgeName     string
+	LibvirtNetwork string
+	DnsmasqID      string // ID for dnsmasq manager
 
 	// KIND cluster
 	KindCluster     string
@@ -109,12 +108,18 @@ func SetupShaperTestEnvironment(config ShaperSetupConfig) (*ShaperTestEnvironmen
 		env.TFTPRoot = filepath.Join(env.TempDirRoot, "tftp")
 	}
 
+	ctx := context.Background()
+
 	// Step 1: Create network bridge
+	// Use sudo context for network operations
+	execCtx := execcontext.New(nil, []string{"sudo"})
+	bridgeMgr := network.NewBridgeManager(execCtx)
+
 	bridgeConfig := network.BridgeConfig{
 		Name: config.BridgeName,
 		CIDR: config.NetworkCIDR,
 	}
-	if err := network.CreateBridge(bridgeConfig); err != nil {
+	if err := bridgeMgr.Create(ctx, bridgeConfig); err != nil {
 		return nil, flaterrors.Join(err, fmt.Errorf("failed to create bridge"))
 	}
 
@@ -128,39 +133,33 @@ func SetupShaperTestEnvironment(config ShaperSetupConfig) (*ShaperTestEnvironmen
 	}
 	defer conn.Close()
 
+	libvirtMgr := network.NewLibvirtNetworkManager(conn.GetConnection())
 	libvirtNetConfig := network.LibvirtNetworkConfig{
 		Name:       libvirtNetworkName,
 		BridgeName: config.BridgeName,
 		Mode:       "bridge",
 	}
-	if err := network.CreateLibvirtNetwork(conn.GetConnection(), libvirtNetConfig); err != nil {
+	if err := libvirtMgr.Create(ctx, libvirtNetConfig); err != nil {
 		return nil, flaterrors.Join(err, fmt.Errorf("failed to create libvirt network"))
 	}
 
 	// Step 3: Start dnsmasq
-	dnsmasqConfigPath := filepath.Join(env.TempDirRoot, "dnsmasq.conf")
-	dnsmasqPIDFile := filepath.Join(env.TempDirRoot, "dnsmasq.pid")
-	dnsmasqLeaseFile := filepath.Join(env.TempDirRoot, "dnsmasq.leases")
+	dnsmasqID := "dnsmasq-" + testID
+	env.DnsmasqID = dnsmasqID
 
-	env.DnsmasqConfigPath = dnsmasqConfigPath
-	env.DnsmasqPIDFile = dnsmasqPIDFile
-
+	dnsmasqMgr := network.NewDnsmasqManager(execCtx)
 	dnsmasqConfig := network.DnsmasqConfig{
 		Interface:    config.BridgeName,
 		DHCPRange:    config.DHCPRange,
 		TFTPRoot:     env.TFTPRoot,
 		BootFilename: filepath.Base(config.IPXEBootFile),
-		PIDFile:      dnsmasqPIDFile,
-		LeaseFile:    dnsmasqLeaseFile,
 		LogQueries:   true,
 		LogDHCP:      true,
 	}
 
-	dnsmasqProc, err := network.StartDnsmasq(dnsmasqConfig, dnsmasqConfigPath)
-	if err != nil {
+	if err := dnsmasqMgr.Create(ctx, dnsmasqID, dnsmasqConfig); err != nil {
 		return nil, flaterrors.Join(err, fmt.Errorf("failed to start dnsmasq"))
 	}
-	env.DnsmasqProcess = dnsmasqProc
 
 	// Copy iPXE boot file to TFTP root if provided
 	if config.IPXEBootFile != "" && fileExists(config.IPXEBootFile) {
@@ -240,17 +239,15 @@ func TeardownShaperTestEnvironment(env *ShaperTestEnvironment) error {
 	}
 
 	var errors []error
-	execCtx := execcontext.New(make(map[string]string), []string{})
+	ctx := context.Background()
+	execCtx := execcontext.New(nil, []string{"sudo"})
 
-	// Stop dnsmasq
-	if env.DnsmasqProcess != nil {
-		if err := env.DnsmasqProcess.Stop(); err != nil {
+	// Stop dnsmasq using manager
+	if env.DnsmasqID != "" {
+		dnsmasqMgr := network.NewDnsmasqManager(execCtx)
+		if err := dnsmasqMgr.Delete(ctx, env.DnsmasqID); err != nil {
 			errors = append(errors, fmt.Errorf("failed to stop dnsmasq: %v", err))
 		}
-	}
-	// Also try stopping by PID file
-	if env.DnsmasqPIDFile != "" {
-		_ = network.StopByPIDFile(env.DnsmasqPIDFile)
 	}
 
 	// Delete client VMs if they exist
@@ -266,12 +263,13 @@ func TeardownShaperTestEnvironment(env *ShaperTestEnvironment) error {
 		}
 	}
 
-	// Delete libvirt network
+	// Delete libvirt network using manager
 	if env.LibvirtNetwork != "" {
 		vmmConn, err := vmm.NewVMM()
 		if err == nil {
 			defer vmmConn.Close()
-			if err := network.DeleteLibvirtNetwork(vmmConn.GetConnection(), env.LibvirtNetwork); err != nil {
+			libvirtMgr := network.NewLibvirtNetworkManager(vmmConn.GetConnection())
+			if err := libvirtMgr.Delete(ctx, env.LibvirtNetwork); err != nil {
 				errors = append(errors, fmt.Errorf("failed to delete libvirt network: %v", err))
 			}
 		}
@@ -284,9 +282,10 @@ func TeardownShaperTestEnvironment(env *ShaperTestEnvironment) error {
 		}
 	}
 
-	// Delete network bridge
+	// Delete network bridge using manager
 	if env.BridgeName != "" {
-		if err := network.DeleteBridge(env.BridgeName); err != nil {
+		bridgeMgr := network.NewBridgeManager(execCtx)
+		if err := bridgeMgr.Delete(ctx, env.BridgeName); err != nil {
 			errors = append(errors, fmt.Errorf("failed to delete bridge: %v", err))
 		}
 	}

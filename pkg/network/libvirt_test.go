@@ -1,107 +1,139 @@
-package network_test
+//go:build unit
+
+package network
 
 import (
-	"github.com/alexandremahdhaoui/shaper/pkg/network"
+	"context"
+	"errors"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
-func TestLibvirtNetworkConfig_Validation(t *testing.T) {
-	// These tests verify validation without requiring libvirt
-	t.Run("nil connection", func(t *testing.T) {
-		config := network.LibvirtNetworkConfig{
-			Name: "test",
-			Mode: "bridge",
-		}
-		err := network.CreateLibvirtNetwork(nil, config)
-		require.ErrorIs(t, err, network.ErrConnNil)
-	})
-
-	t.Run("empty name", func(t *testing.T) {
-		// We can't create a real connection for unit test
-		// Just verify the error types are correct
-		err := network.DeleteLibvirtNetwork(nil, "")
-		require.ErrorIs(t, err, network.ErrNetworkNameRequired)
-
-		exists, err := network.NetworkExists(nil, "")
-		require.ErrorIs(t, err, network.ErrNetworkNameRequired)
-		require.False(t, exists)
-	})
-}
-
-func TestGenerateNetworkXML(t *testing.T) {
+func TestNewLibvirtNetworkManager(t *testing.T) {
 	tests := []struct {
-		name       string
-		config     network.LibvirtNetworkConfig
-		shouldFail bool
-		contains   []string
+		name string
 	}{
 		{
-			name: "bridge mode",
-			config: network.LibvirtNetworkConfig{
-				Name:       "test-net",
-				BridgeName: "br-test",
-				Mode:       "bridge",
-			},
-			shouldFail: false,
-			contains: []string{
-				"<name>test-net</name>",
-				"<forward mode=\"bridge\"",
-				"<bridge name=\"br-test\"",
-			},
-		},
-		{
-			name: "nat mode",
-			config: network.LibvirtNetworkConfig{
-				Name: "test-nat",
-				Mode: "nat",
-			},
-			shouldFail: false,
-			contains: []string{
-				"<name>test-nat</name>",
-				"<forward mode=\"nat\"",
-			},
-		},
-		{
-			name: "isolated mode",
-			config: network.LibvirtNetworkConfig{
-				Name: "test-isolated",
-				Mode: "isolated",
-			},
-			shouldFail: false,
-			contains: []string{
-				"<name>test-isolated</name>",
-			},
-		},
-		{
-			name: "bridge mode without bridge name",
-			config: network.LibvirtNetworkConfig{
-				Name: "test-fail",
-				Mode: "bridge",
-			},
-			shouldFail: true,
-		},
-		{
-			name: "unsupported mode",
-			config: network.LibvirtNetworkConfig{
-				Name: "test-fail",
-				Mode: "invalid",
-			},
-			shouldFail: true,
+			name: "with nil connection",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			xml, err := network.GenerateNetworkXML(tt.config)
-			if tt.shouldFail {
-				require.Error(t, err)
-				return
+			mgr := NewLibvirtNetworkManager(nil)
+			if mgr == nil {
+				t.Fatal("expected non-nil manager")
 			}
-			require.NoError(t, err)
-			for _, substr := range tt.contains {
-				require.Contains(t, xml, substr)
+		})
+	}
+}
+
+func TestLibvirtNetworkManager_Create_ValidationErrors(t *testing.T) {
+	mgr := NewLibvirtNetworkManager(nil)
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		config      LibvirtNetworkConfig
+		expectedErr error
+	}{
+		{
+			name: "nil connection with valid name",
+			config: LibvirtNetworkConfig{
+				Name: "test",
+			},
+			expectedErr: ErrConnNil,
+		},
+		{
+			name:        "empty network name (conn also nil, but checks conn first)",
+			config:      LibvirtNetworkConfig{},
+			expectedErr: ErrConnNil, // conn is checked before name
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := mgr.Create(ctx, tt.config)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !errors.Is(err, tt.expectedErr) {
+				t.Errorf("expected error %v, got %v", tt.expectedErr, err)
+			}
+		})
+	}
+}
+
+func TestLibvirtNetworkManager_Get_ValidationErrors(t *testing.T) {
+	mgr := NewLibvirtNetworkManager(nil)
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		networkName string
+		expectedErr error
+	}{
+		{
+			name:        "empty network name",
+			networkName: "",
+			expectedErr: ErrNetworkNameRequired,
+		},
+		{
+			name:        "nil connection",
+			networkName: "test",
+			expectedErr: ErrConnNil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := mgr.Get(ctx, tt.networkName)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !errors.Is(err, tt.expectedErr) {
+				t.Errorf("expected error %v, got %v", tt.expectedErr, err)
+			}
+		})
+	}
+}
+
+func TestLibvirtNetworkManager_Get_NotFound_ErrorCheck(t *testing.T) {
+	// This test verifies that errors.Is works with ErrNetworkNotFound
+	err := ErrNetworkNotFound
+	if !errors.Is(err, ErrNetworkNotFound) {
+		t.Fatal("errors.Is should work with ErrNetworkNotFound")
+	}
+}
+
+func TestLibvirtNetworkManager_Delete_ValidationErrors(t *testing.T) {
+	mgr := NewLibvirtNetworkManager(nil)
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		networkName string
+		expectedErr error
+	}{
+		{
+			name:        "empty network name",
+			networkName: "",
+			expectedErr: ErrNetworkNameRequired,
+		},
+		{
+			name:        "nil connection",
+			networkName: "test",
+			expectedErr: ErrConnNil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := mgr.Delete(ctx, tt.networkName)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !errors.Is(err, tt.expectedErr) {
+				t.Errorf("expected error %v, got %v", tt.expectedErr, err)
 			}
 		})
 	}

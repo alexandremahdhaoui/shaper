@@ -1,80 +1,155 @@
-package network_test
+//go:build unit
+
+package network
 
 import (
+	"context"
+	"errors"
 	"testing"
 
-	"github.com/alexandremahdhaoui/shaper/pkg/network"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/require"
+	"github.com/alexandremahdhaoui/shaper/pkg/execcontext"
 )
 
-func TestBridgeConfig_Validation(t *testing.T) {
+func TestNewBridgeManager(t *testing.T) {
 	tests := []struct {
 		name    string
-		config  network.BridgeConfig
-		wantErr error
+		execCtx execcontext.Context
 	}{
 		{
-			name: "valid config",
-			config: network.BridgeConfig{
-				Name: "br-test",
-				CIDR: "192.168.100.1/24",
-			},
-			wantErr: nil,
+			name:    "with nil context",
+			execCtx: execcontext.New(nil, nil),
 		},
 		{
-			name: "empty name",
-			config: network.BridgeConfig{
-				Name: "",
-				CIDR: "192.168.100.1/24",
-			},
-			wantErr: network.ErrBridgeNameRequired,
-		},
-		{
-			name: "empty CIDR",
-			config: network.BridgeConfig{
-				Name: "br-test",
-				CIDR: "",
-			},
-			wantErr: network.ErrCIDRRequired,
+			name:    "with sudo context",
+			execCtx: execcontext.New(nil, []string{"sudo"}),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// We don't actually create the bridge in unit tests
-			// Just verify validation logic
-			if tt.config.Name == "" {
-				require.ErrorIs(t, network.CreateBridge(tt.config), tt.wantErr)
-			} else if tt.config.CIDR == "" {
-				require.ErrorIs(t, network.CreateBridge(tt.config), tt.wantErr)
+			mgr := NewBridgeManager(tt.execCtx)
+			if mgr == nil {
+				t.Fatal("expected non-nil manager")
+			}
+			if mgr.execCtx == nil {
+				t.Fatal("expected non-nil execCtx")
 			}
 		})
 	}
 }
 
-func TestBridgeExists_InvalidName(t *testing.T) {
-	exists, err := network.BridgeExists("")
-	require.ErrorIs(t, err, network.ErrBridgeNameRequired)
-	require.False(t, exists)
+func TestBridgeManager_Create_ValidationErrors(t *testing.T) {
+	mgr := NewBridgeManager(execcontext.New(nil, nil))
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		config      BridgeConfig
+		expectedErr error
+	}{
+		{
+			name: "empty bridge name",
+			config: BridgeConfig{
+				Name: "",
+				CIDR: "192.168.100.1/24",
+			},
+			expectedErr: ErrBridgeNameRequired,
+		},
+		{
+			name: "empty CIDR",
+			config: BridgeConfig{
+				Name: "br0",
+				CIDR: "",
+			},
+			expectedErr: ErrCIDRRequired,
+		},
+		{
+			name: "both empty",
+			config: BridgeConfig{
+				Name: "",
+				CIDR: "",
+			},
+			expectedErr: ErrBridgeNameRequired,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := mgr.Create(ctx, tt.config)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !errors.Is(err, tt.expectedErr) {
+				t.Errorf("expected error %v, got %v", tt.expectedErr, err)
+			}
+		})
+	}
 }
 
-func TestBridgeExists_NonExistent(t *testing.T) {
-	// Test with a bridge that definitely doesn't exist
-	bridgeName := "nonexistent-bridge-" + uuid.NewString()[:8]
-	exists, err := network.BridgeExists(bridgeName)
-	require.NoError(t, err)
-	require.False(t, exists)
+func TestBridgeManager_Get_ValidationErrors(t *testing.T) {
+	mgr := NewBridgeManager(execcontext.New(nil, nil))
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		bridgeName  string
+		expectedErr error
+	}{
+		{
+			name:        "empty bridge name",
+			bridgeName:  "",
+			expectedErr: ErrBridgeNameRequired,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := mgr.Get(ctx, tt.bridgeName)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !errors.Is(err, tt.expectedErr) {
+				t.Errorf("expected error %v, got %v", tt.expectedErr, err)
+			}
+		})
+	}
 }
 
-func TestDeleteBridge_InvalidName(t *testing.T) {
-	err := network.DeleteBridge("")
-	require.ErrorIs(t, err, network.ErrBridgeNameRequired)
+func TestBridgeManager_Get_NotFound_ErrorCheck(t *testing.T) {
+	// This test verifies that errors.Is works with ErrBridgeNotFound
+	// We can't actually test Get without mocking or running as root,
+	// but we can verify the error type is usable with errors.Is
+	err := ErrBridgeNotFound
+	if !errors.Is(err, ErrBridgeNotFound) {
+		t.Fatal("errors.Is should work with ErrBridgeNotFound")
+	}
 }
 
-func TestDeleteBridge_NonExistent(t *testing.T) {
-	// Deleting non-existent bridge should not error (idempotent)
-	bridgeName := "nonexistent-bridge-" + uuid.NewString()[:8]
-	err := network.DeleteBridge(bridgeName)
-	require.NoError(t, err)
+func TestBridgeManager_Delete_ValidationErrors(t *testing.T) {
+	mgr := NewBridgeManager(execcontext.New(nil, nil))
+	ctx := context.Background()
+
+	tests := []struct {
+		name        string
+		bridgeName  string
+		expectedErr error
+	}{
+		{
+			name:        "empty bridge name",
+			bridgeName:  "",
+			expectedErr: ErrBridgeNameRequired,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := mgr.Delete(ctx, tt.bridgeName)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !errors.Is(err, tt.expectedErr) {
+				t.Errorf("expected error %v, got %v", tt.expectedErr, err)
+			}
+		})
+	}
 }

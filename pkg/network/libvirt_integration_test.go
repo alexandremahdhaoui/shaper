@@ -3,9 +3,10 @@
 package network_test
 
 import (
-	"github.com/alexandremahdhaoui/shaper/pkg/network"
+	"context"
 	"testing"
 
+	"github.com/alexandremahdhaoui/shaper/pkg/network"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"libvirt.org/go/libvirt"
@@ -13,10 +14,13 @@ import (
 
 // Integration tests for libvirt network management
 
-func TestCreateLibvirtNetwork_Bridge_Integration(t *testing.T) {
+func TestLibvirtNetworkManager_Create_Bridge_Integration(t *testing.T) {
 	conn, err := libvirt.NewConnect("qemu:///system")
 	require.NoError(t, err)
 	defer conn.Close()
+
+	mgr := network.NewLibvirtNetworkManager(conn)
+	ctx := context.Background()
 
 	networkName := "net" + uuid.NewString()[:8]
 
@@ -30,29 +34,25 @@ func TestCreateLibvirtNetwork_Bridge_Integration(t *testing.T) {
 		Mode:       "bridge",
 	}
 
-	err = network.CreateLibvirtNetwork(conn, config)
+	err = mgr.Create(ctx, config)
 	require.NoError(t, err)
-	defer network.DeleteLibvirtNetwork(conn, networkName)
+	defer mgr.Delete(ctx, networkName)
 
-	// Verify network exists
-	exists, err := network.NetworkExists(conn, networkName)
+	// Verify network exists using Get
+	info, err := mgr.Get(ctx, networkName)
 	require.NoError(t, err)
-	require.True(t, exists)
-
-	// Verify network is active
-	network, err := conn.LookupNetworkByName(networkName)
-	require.NoError(t, err)
-	defer network.Free()
-
-	active, err := network.IsActive()
-	require.NoError(t, err)
-	require.True(t, active)
+	require.NotNil(t, info)
+	require.Equal(t, networkName, info.Name)
+	require.True(t, info.IsActive)
 }
 
-func TestCreateLibvirtNetwork_NAT_Integration(t *testing.T) {
+func TestLibvirtNetworkManager_Create_NAT_Integration(t *testing.T) {
 	conn, err := libvirt.NewConnect("qemu:///system")
 	require.NoError(t, err)
 	defer conn.Close()
+
+	mgr := network.NewLibvirtNetworkManager(conn)
+	ctx := context.Background()
 
 	networkName := "net" + uuid.NewString()[:8]
 
@@ -61,20 +61,24 @@ func TestCreateLibvirtNetwork_NAT_Integration(t *testing.T) {
 		Mode: "nat",
 	}
 
-	err = network.CreateLibvirtNetwork(conn, config)
+	err = mgr.Create(ctx, config)
 	require.NoError(t, err)
-	defer network.DeleteLibvirtNetwork(conn, networkName)
+	defer mgr.Delete(ctx, networkName)
 
-	// Verify network exists
-	exists, err := network.NetworkExists(conn, networkName)
+	// Verify network exists using Get
+	info, err := mgr.Get(ctx, networkName)
 	require.NoError(t, err)
-	require.True(t, exists)
+	require.NotNil(t, info)
+	require.Equal(t, networkName, info.Name)
 }
 
-func TestCreateLibvirtNetwork_Idempotent_Integration(t *testing.T) {
+func TestLibvirtNetworkManager_Create_Idempotent_Integration(t *testing.T) {
 	conn, err := libvirt.NewConnect("qemu:///system")
 	require.NoError(t, err)
 	defer conn.Close()
+
+	mgr := network.NewLibvirtNetworkManager(conn)
+	ctx := context.Background()
 
 	networkName := "net" + uuid.NewString()[:8]
 
@@ -84,24 +88,27 @@ func TestCreateLibvirtNetwork_Idempotent_Integration(t *testing.T) {
 	}
 
 	// Create first time
-	err = network.CreateLibvirtNetwork(conn, config)
+	err = mgr.Create(ctx, config)
 	require.NoError(t, err)
-	defer network.DeleteLibvirtNetwork(conn, networkName)
+	defer mgr.Delete(ctx, networkName)
 
 	// Create second time - should not error
-	err = network.CreateLibvirtNetwork(conn, config)
+	err = mgr.Create(ctx, config)
 	require.NoError(t, err)
 
 	// Verify network still exists
-	exists, err := network.NetworkExists(conn, networkName)
+	info, err := mgr.Get(ctx, networkName)
 	require.NoError(t, err)
-	require.True(t, exists)
+	require.NotNil(t, info)
 }
 
-func TestDeleteLibvirtNetwork_Integration(t *testing.T) {
+func TestLibvirtNetworkManager_Delete_Integration(t *testing.T) {
 	conn, err := libvirt.NewConnect("qemu:///system")
 	require.NoError(t, err)
 	defer conn.Close()
+
+	mgr := network.NewLibvirtNetworkManager(conn)
+	ctx := context.Background()
 
 	networkName := "net" + uuid.NewString()[:8]
 
@@ -111,28 +118,30 @@ func TestDeleteLibvirtNetwork_Integration(t *testing.T) {
 	}
 
 	// Create network
-	err = network.CreateLibvirtNetwork(conn, config)
+	err = mgr.Create(ctx, config)
 	require.NoError(t, err)
 
 	// Verify it exists
-	exists, err := network.NetworkExists(conn, networkName)
+	info, err := mgr.Get(ctx, networkName)
 	require.NoError(t, err)
-	require.True(t, exists)
+	require.NotNil(t, info)
 
 	// Delete network
-	err = network.DeleteLibvirtNetwork(conn, networkName)
+	err = mgr.Delete(ctx, networkName)
 	require.NoError(t, err)
 
-	// Verify it's gone
-	exists, err = network.NetworkExists(conn, networkName)
-	require.NoError(t, err)
-	require.False(t, exists)
+	// Verify it's gone (Get should return error)
+	_, err = mgr.Get(ctx, networkName)
+	require.Error(t, err)
 }
 
-func TestDeleteLibvirtNetwork_Idempotent_Integration(t *testing.T) {
+func TestLibvirtNetworkManager_Delete_Idempotent_Integration(t *testing.T) {
 	conn, err := libvirt.NewConnect("qemu:///system")
 	require.NoError(t, err)
 	defer conn.Close()
+
+	mgr := network.NewLibvirtNetworkManager(conn)
+	ctx := context.Background()
 
 	networkName := "net" + uuid.NewString()[:8]
 
@@ -142,24 +151,26 @@ func TestDeleteLibvirtNetwork_Idempotent_Integration(t *testing.T) {
 	}
 
 	// Create and delete network
-	err = network.CreateLibvirtNetwork(conn, config)
+	err = mgr.Create(ctx, config)
 	require.NoError(t, err)
 
-	err = network.DeleteLibvirtNetwork(conn, networkName)
+	err = mgr.Delete(ctx, networkName)
 	require.NoError(t, err)
 
 	// Delete again - should not error
-	err = network.DeleteLibvirtNetwork(conn, networkName)
+	err = mgr.Delete(ctx, networkName)
 	require.NoError(t, err)
 }
 
-func TestNetworkExists_NonExistent_Integration(t *testing.T) {
+func TestLibvirtNetworkManager_Get_NonExistent_Integration(t *testing.T) {
 	conn, err := libvirt.NewConnect("qemu:///system")
 	require.NoError(t, err)
 	defer conn.Close()
 
+	mgr := network.NewLibvirtNetworkManager(conn)
+	ctx := context.Background()
+
 	// Check for network that doesn't exist
-	exists, err := network.NetworkExists(conn, "nonexistent-net-"+uuid.NewString())
-	require.NoError(t, err)
-	require.False(t, exists)
+	_, err = mgr.Get(ctx, "nonexistent-net-"+uuid.NewString())
+	require.Error(t, err)
 }

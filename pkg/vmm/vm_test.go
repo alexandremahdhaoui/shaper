@@ -1,3 +1,5 @@
+//go:build integration
+
 package vmm_test
 
 import (

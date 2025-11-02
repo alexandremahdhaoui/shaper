@@ -35,11 +35,14 @@ type GracefulShutdown struct {
 
 	mu sync.Mutex
 	wg *sync.WaitGroup
+
+	// exitFunc allows injecting exit behavior for testing
+	exitFunc func(int)
 }
 
-// New creates a new GracefulShutdown struct initializing a sync.WaitGroup and a new context.Context cancelable by a
-// CancelFunc, a SIGTERM, SIGINT or SIGKILL.
-func New(name string) *GracefulShutdown {
+// NewWithExit creates a new GracefulShutdown struct with a custom exit function.
+// This is primarily useful for testing where os.Exit() would terminate the test process.
+func NewWithExit(name string, exitFunc func(int)) *GracefulShutdown {
 	// 1. initialize a new cancelable context.
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt, os.Kill)
 
@@ -48,10 +51,11 @@ func New(name string) *GracefulShutdown {
 
 	// 3. create the GracefulShutdown struct.
 	gs := &GracefulShutdown{
-		ctx:    ctx,
-		cancel: cancel,
-		name:   name,
-		wg:     wg,
+		ctx:      ctx,
+		cancel:   cancel,
+		name:     name,
+		wg:       wg,
+		exitFunc: exitFunc,
 	}
 
 	// 4. Ensure gs.Shutdown is always called at least once when the context is done.
@@ -61,6 +65,12 @@ func New(name string) *GracefulShutdown {
 	}()
 
 	return gs
+}
+
+// New creates a new GracefulShutdown struct initializing a sync.WaitGroup and a new context.Context cancelable by a
+// CancelFunc, a SIGTERM, SIGINT or SIGKILL.
+func New(name string) *GracefulShutdown {
+	return NewWithExit(name, os.Exit)
 }
 
 // Shutdown shuts down the application gracefully.
@@ -81,8 +91,8 @@ func (s *GracefulShutdown) Shutdown(exitCode int) {
 	// 4. Wait until all goroutines which incremented the wait group are done.
 	s.wg.Wait()
 
-	// 5. Exit.
-	os.Exit(exitCode)
+	// 5. Exit using the injected function.
+	s.exitFunc(exitCode)
 }
 
 // Context returns the context of the graceful shutdown.

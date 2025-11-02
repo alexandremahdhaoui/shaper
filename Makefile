@@ -35,7 +35,7 @@ GOFUMPT_VERSION        := v0.6.0
 # renovate: datasource=github-release depName=golangci/golangci-lint
 GOLANGCI_LINT_VERSION  := v1.63.4
 # renovate: datasource=github-release depName=gotestyourself/gotestsum
-GOTESTSUM_VERSION      := v1.12.0
+GOTESTSUM_VERSION      := v1.13.0
 # renovate: datasource=github-release depName=vektra/mockery
 MOCKERY_VERSION        := v3.5.5
 # renovate: datasource=github-release depName=oapi-codegen/oapi-codegen
@@ -57,11 +57,11 @@ TOOLING := go run github.com/alexandremahdhaoui/tooling/cmd
 
 YQ                  := go run github.com/mikefarah/yq/v4@$(YQ_VERSION)
 CONTROLLER_GEN      := go run sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
-KINDENV				      := $(KINDENV_ENVS) $(TOOLING)/kindenv@$(TOOLING_VERSION)
+KINDENV             := $(KINDENV_ENVS) $(TOOLING)/kindenv@$(TOOLING_VERSION)
 GO_GEN              := go generate
 GOFUMPT             := go run mvdan.cc/gofumpt@$(GOFUMPT_VERSION)
 GOLANGCI_LINT       := go run github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
-GOTESTSUM           := go run gotest.tools/gotestsum@$(GOTESTSUM_VERSION) --format pkgname
+GOTESTSUM           := go run gotest.tools/gotestsum@$(GOTESTSUM_VERSION) --format pkgname-and-test-fails --format-hide-empty-pkg
 LOCAL_CONTAINER_REG := $(TOOLING)/local-container-registry@$(TOOLING_VERSION)
 MOCKERY             := go run github.com/vektra/mockery/v3@$(MOCKERY_VERSION)
 OAPI_CODEGEN        := go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@$(OAPI_CODEGEN_VERSION)
@@ -89,7 +89,7 @@ generate-oapi:
 	$(GO_GEN) "./..."
 
 .PHONY: generate-crds
-generate-crds: ## Generate REST API server/client code, CRDs and other go generators.
+generate-crds: 
 	$(CONTROLLER_GEN) object:headerFile=$(BOILERPLATE_GO_TXT) paths="./..."
 	$(CONTROLLER_GEN) paths="./..." \
 		crd:generateEmbeddedObjectMeta=true \
@@ -116,7 +116,7 @@ generate-mocks:
 
 
 .PHONY: generate
-generate: generate-oapi generate-crds generate-rbac generate-webhooks generate-mocks
+generate: generate-oapi generate-crds generate-rbac generate-webhooks generate-mocks ## Generate REST API server/client code, CRDs and other go generators.
 
 # ------------------------------------------------------- BUILD BINARIES --------------------------------------------- #
 

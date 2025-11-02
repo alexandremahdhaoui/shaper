@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -8,6 +9,7 @@ import (
 	"libvirt.org/go/libvirtxml"
 )
 
+// Error variables for libvirt network operations
 var (
 	ErrNetworkNameRequired = errors.New("network name is required")
 	ErrConnNil             = errors.New("libvirt connection is nil")
@@ -18,6 +20,7 @@ var (
 	ErrUndefineNetwork     = errors.New("failed to undefine libvirt network")
 	ErrCheckNetwork        = errors.New("failed to check if network exists")
 	ErrMarshalNetworkXML   = errors.New("failed to marshal network XML")
+	ErrNetworkNotFound     = errors.New("libvirt network not found")
 )
 
 // LibvirtNetworkConfig contains libvirt network configuration
@@ -27,11 +30,31 @@ type LibvirtNetworkConfig struct {
 	Mode       string // "bridge", "nat", "isolated"
 }
 
-// CreateLibvirtNetwork creates a libvirt network
-// For bridge mode, it uses an existing Linux bridge
-// For nat/isolated modes, libvirt manages the network
-func CreateLibvirtNetwork(conn *libvirt.Connect, config LibvirtNetworkConfig) error {
-	if conn == nil {
+// LibvirtNetworkManager manages libvirt virtual networks
+type LibvirtNetworkManager struct {
+	conn *libvirt.Connect
+}
+
+// NewLibvirtNetworkManager creates a new LibvirtNetworkManager
+func NewLibvirtNetworkManager(conn *libvirt.Connect) *LibvirtNetworkManager {
+	return &LibvirtNetworkManager{
+		conn: conn,
+	}
+}
+
+// LibvirtNetworkInfo contains information about a libvirt network
+type LibvirtNetworkInfo struct {
+	Name       string
+	BridgeName string
+	Mode       string
+	IsActive   bool
+	Autostart  bool
+}
+
+// Create creates a new libvirt network with the given configuration
+// Idempotent - if network exists, ensures it's active
+func (m *LibvirtNetworkManager) Create(ctx context.Context, config LibvirtNetworkConfig) error {
+	if m.conn == nil {
 		return ErrConnNil
 	}
 	if config.Name == "" {
@@ -44,13 +67,14 @@ func CreateLibvirtNetwork(conn *libvirt.Connect, config LibvirtNetworkConfig) er
 	}
 
 	// Check if network already exists
-	exists, err := NetworkExists(conn, config.Name)
-	if err != nil {
+	info, err := m.Get(ctx, config.Name)
+	if err != nil && !errors.Is(err, ErrNetworkNotFound) {
+		// An error other than "not found" occurred
 		return err
 	}
-	if exists {
+	if info != nil {
 		// Network already exists, ensure it's active
-		return ensureNetworkActive(conn, config.Name)
+		return m.ensureNetworkActive(config.Name)
 	}
 
 	// Generate network XML
@@ -60,7 +84,7 @@ func CreateLibvirtNetwork(conn *libvirt.Connect, config LibvirtNetworkConfig) er
 	}
 
 	// Define the network
-	network, err := conn.NetworkDefineXML(networkXML)
+	network, err := m.conn.NetworkDefineXML(networkXML)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrDefineNetwork, err)
 	}
@@ -76,37 +100,130 @@ func CreateLibvirtNetwork(conn *libvirt.Connect, config LibvirtNetworkConfig) er
 	// Set network to autostart
 	if err := network.SetAutostart(true); err != nil {
 		// Log but don't fail - autostart is not critical
-		// We could add logging here if needed
 	}
 
 	return nil
 }
 
-// DeleteLibvirtNetwork removes a libvirt network
+// ensureNetworkActive ensures a network is active (started)
+func (m *LibvirtNetworkManager) ensureNetworkActive(name string) error {
+	network, err := m.conn.LookupNetworkByName(name)
+	if err != nil {
+		return fmt.Errorf("failed to lookup network: %v", err)
+	}
+	defer network.Free()
+
+	active, err := network.IsActive()
+	if err != nil {
+		return fmt.Errorf("failed to check network state: %v", err)
+	}
+
+	if !active {
+		if err := network.Create(); err != nil {
+			return fmt.Errorf("%w: %v", ErrStartNetwork, err)
+		}
+	}
+
+	return nil
+}
+
+// Get retrieves information about a libvirt network
+// Returns ErrNetworkNotFound if the network doesn't exist
+func (m *LibvirtNetworkManager) Get(ctx context.Context, name string) (*LibvirtNetworkInfo, error) {
+	if name == "" {
+		return nil, ErrNetworkNameRequired
+	}
+	if m.conn == nil {
+		return nil, ErrConnNil
+	}
+
+	// Try to lookup the network
+	network, err := m.conn.LookupNetworkByName(name)
+	if err != nil {
+		// Check if error is because network doesn't exist
+		libvirtErr, ok := err.(libvirt.Error)
+		if ok && libvirtErr.Code == libvirt.ERR_NO_NETWORK {
+			return nil, ErrNetworkNotFound
+		}
+		// Some other error
+		return nil, fmt.Errorf("%w: %v", ErrCheckNetwork, err)
+	}
+	defer network.Free()
+
+	// Get active status
+	isActive, err := network.IsActive()
+	if err != nil {
+		return nil, fmt.Errorf("failed to check network state: %v", err)
+	}
+
+	// Get autostart status
+	autostart, err := network.GetAutostart()
+	if err != nil {
+		return nil, fmt.Errorf("failed to check autostart: %v", err)
+	}
+
+	// Get network XML to extract bridge name and mode
+	xmlDesc, err := network.GetXMLDesc(0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get network XML: %v", err)
+	}
+
+	// Parse XML
+	var networkXML libvirtxml.Network
+	if err := networkXML.Unmarshal(xmlDesc); err != nil {
+		return nil, fmt.Errorf("failed to parse network XML: %v", err)
+	}
+
+	// Extract bridge name and mode
+	bridgeName := ""
+	if networkXML.Bridge != nil {
+		bridgeName = networkXML.Bridge.Name
+	}
+
+	mode := "isolated" // default
+	if networkXML.Forward != nil {
+		mode = networkXML.Forward.Mode
+	}
+
+	return &LibvirtNetworkInfo{
+		Name:       name,
+		BridgeName: bridgeName,
+		Mode:       mode,
+		IsActive:   isActive,
+		Autostart:  autostart,
+	}, nil
+}
+
+// Delete removes a libvirt network
 // Idempotent - returns nil if network doesn't exist
-func DeleteLibvirtNetwork(conn *libvirt.Connect, name string) error {
+func (m *LibvirtNetworkManager) Delete(ctx context.Context, name string) error {
 	if name == "" {
 		return ErrNetworkNameRequired
 	}
-	if conn == nil {
+	if m.conn == nil {
 		return ErrConnNil
 	}
 
 	// Check if network exists
-	exists, err := NetworkExists(conn, name)
+	_, err := m.Get(ctx, name)
 	if err != nil {
+		if errors.Is(err, ErrNetworkNotFound) {
+			// Network doesn't exist, nothing to do
+			return nil
+		}
+		// Some other error occurred during Get
 		return err
-	}
-	if !exists {
-		// Network doesn't exist, nothing to do
-		return nil
 	}
 
 	// Look up the network
-	network, err := conn.LookupNetworkByName(name)
+	network, err := m.conn.LookupNetworkByName(name)
 	if err != nil {
 		// Network might have been deleted between exists check and lookup
-		return nil
+		libvirtErr, ok := err.(libvirt.Error)
+		if ok && libvirtErr.Code == libvirt.ERR_NO_NETWORK {
+			return nil
+		}
+		return fmt.Errorf("failed to lookup network: %v", err)
 	}
 	defer network.Free()
 
@@ -129,31 +246,6 @@ func DeleteLibvirtNetwork(conn *libvirt.Connect, name string) error {
 	}
 
 	return nil
-}
-
-// NetworkExists checks if a libvirt network exists
-func NetworkExists(conn *libvirt.Connect, name string) (bool, error) {
-	if name == "" {
-		return false, ErrNetworkNameRequired
-	}
-	if conn == nil {
-		return false, ErrConnNil
-	}
-
-	// Try to lookup the network
-	network, err := conn.LookupNetworkByName(name)
-	if err != nil {
-		// Check if error is because network doesn't exist
-		libvirtErr, ok := err.(libvirt.Error)
-		if ok && libvirtErr.Code == libvirt.ERR_NO_NETWORK {
-			return false, nil
-		}
-		// Some other error
-		return false, fmt.Errorf("%w: %v", ErrCheckNetwork, err)
-	}
-	defer network.Free()
-
-	return true, nil
 }
 
 // GenerateNetworkXML creates libvirt network XML from config
@@ -217,26 +309,4 @@ func GenerateNetworkXML(config LibvirtNetworkConfig) (string, error) {
 	}
 
 	return xml, nil
-}
-
-// ensureNetworkActive ensures a network is active (started)
-func ensureNetworkActive(conn *libvirt.Connect, name string) error {
-	network, err := conn.LookupNetworkByName(name)
-	if err != nil {
-		return fmt.Errorf("failed to lookup network: %v", err)
-	}
-	defer network.Free()
-
-	active, err := network.IsActive()
-	if err != nil {
-		return fmt.Errorf("failed to check network state: %v", err)
-	}
-
-	if !active {
-		if err := network.Create(); err != nil {
-			return fmt.Errorf("%w: %v", ErrStartNetwork, err)
-		}
-	}
-
-	return nil
 }

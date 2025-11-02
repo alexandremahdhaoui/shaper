@@ -20,22 +20,12 @@ func TestCreateNamespace_Integration(t *testing.T) {
 		t.Skip("KIND or kubectl not installed")
 	}
 
-	// Create a test cluster
-	clusterName := "test-" + uuid.NewString()[:8]
-	kubeconfigPath := filepath.Join(t.TempDir(), "kubeconfig")
-
-	config := kind.ClusterConfig{
-		Name:       clusterName,
-		Kubeconfig: kubeconfigPath,
-	}
-
-	err := kind.CreateCluster(config)
-	require.NoError(t, err)
-	defer kind.DeleteCluster(clusterName)
+	// Use the shared test cluster
+	kubeconfigPath := getTestKubeconfig(t)
 
 	// Test namespace creation
 	namespace := "test-ns-" + uuid.NewString()[:8]
-	err = kind.CreateNamespace(kubeconfigPath, namespace)
+	err := kind.CreateNamespace(kubeconfigPath, namespace)
 	require.NoError(t, err)
 
 	// Verify namespace exists
@@ -49,18 +39,8 @@ func TestApplyManifest_Integration(t *testing.T) {
 		t.Skip("KIND or kubectl not installed")
 	}
 
-	// Create a test cluster
-	clusterName := "test-" + uuid.NewString()[:8]
-	kubeconfigPath := filepath.Join(t.TempDir(), "kubeconfig")
-
-	config := kind.ClusterConfig{
-		Name:       clusterName,
-		Kubeconfig: kubeconfigPath,
-	}
-
-	err := kind.CreateCluster(config)
-	require.NoError(t, err)
-	defer kind.DeleteCluster(clusterName)
+	// Use the shared test cluster
+	kubeconfigPath := getTestKubeconfig(t)
 
 	// Create a simple ConfigMap manifest
 	manifestContent := `apiVersion: v1
@@ -71,7 +51,7 @@ data:
   key: value
 `
 	manifestPath := filepath.Join(t.TempDir(), "configmap.yaml")
-	err = os.WriteFile(manifestPath, []byte(manifestContent), 0644)
+	err := os.WriteFile(manifestPath, []byte(manifestContent), 0644)
 	require.NoError(t, err)
 
 	// Apply manifest
@@ -88,18 +68,8 @@ func TestCreateCRDs_Integration(t *testing.T) {
 		t.Skip("KIND or kubectl not installed")
 	}
 
-	// Create a test cluster
-	clusterName := "test-" + uuid.NewString()[:8]
-	kubeconfigPath := filepath.Join(t.TempDir(), "kubeconfig")
-
-	config := kind.ClusterConfig{
-		Name:       clusterName,
-		Kubeconfig: kubeconfigPath,
-	}
-
-	err := kind.CreateCluster(config)
-	require.NoError(t, err)
-	defer kind.DeleteCluster(clusterName)
+	// Use the shared test cluster
+	kubeconfigPath := getTestKubeconfig(t)
 
 	// Create a simple CRD manifest
 	crdContent := `apiVersion: apiextensions.k8s.io/v1
@@ -129,7 +99,7 @@ spec:
                 type: string
 `
 	crdPath := filepath.Join(t.TempDir(), "crd.yaml")
-	err = os.WriteFile(crdPath, []byte(crdContent), 0644)
+	err := os.WriteFile(crdPath, []byte(crdContent), 0644)
 	require.NoError(t, err)
 
 	// Apply CRD
@@ -146,18 +116,8 @@ func TestGetPodStatus_Integration(t *testing.T) {
 		t.Skip("KIND or kubectl not installed")
 	}
 
-	// Create a test cluster
-	clusterName := "test-" + uuid.NewString()[:8]
-	kubeconfigPath := filepath.Join(t.TempDir(), "kubeconfig")
-
-	config := kind.ClusterConfig{
-		Name:       clusterName,
-		Kubeconfig: kubeconfigPath,
-	}
-
-	err := kind.CreateCluster(config)
-	require.NoError(t, err)
-	defer kind.DeleteCluster(clusterName)
+	// Use the shared test cluster
+	kubeconfigPath := getTestKubeconfig(t)
 
 	// Get pod status (might be empty, but should not error)
 	status, err := kind.GetPodStatus(kubeconfigPath, "kube-system")
@@ -172,28 +132,18 @@ func TestDeployShaperToKIND_WithoutDeployment_Integration(t *testing.T) {
 		t.Skip("KIND or kubectl not installed")
 	}
 
-	// Create a test cluster
-	clusterName := "test-" + uuid.NewString()[:8]
-	kubeconfigPath := filepath.Join(t.TempDir(), "kubeconfig")
-
-	clusterConfig := kind.ClusterConfig{
-		Name:       clusterName,
-		Kubeconfig: kubeconfigPath,
-	}
-
-	err := kind.CreateCluster(clusterConfig)
-	require.NoError(t, err)
-	defer kind.DeleteCluster(clusterName)
+	// Use the shared test cluster
+	kubeconfigPath := getTestKubeconfig(t)
 
 	// Deploy without actual deployment (just namespace and CRDs)
-	namespace := "test-shaper"
+	namespace := "test-shaper-" + uuid.NewString()[:8]
 	deployConfig := kind.DeployConfig{
 		Kubeconfig:  kubeconfigPath,
 		Namespace:   namespace,
 		WaitTimeout: 30 * time.Second,
 	}
 
-	err = kind.DeployShaperToKIND(deployConfig)
+	err := kind.DeployShaperToKIND(deployConfig)
 	require.NoError(t, err)
 }
 
@@ -202,63 +152,23 @@ func TestCreateTestProfile_Integration(t *testing.T) {
 		t.Skip("KIND or kubectl not installed")
 	}
 
-	// Create a test cluster
-	clusterName := "test-" + uuid.NewString()[:8]
-	kubeconfigPath := filepath.Join(t.TempDir(), "kubeconfig")
+	// Use the shared test cluster
+	kubeconfigPath := getTestKubeconfig(t)
 
-	config := kind.ClusterConfig{
-		Name:       clusterName,
-		Kubeconfig: kubeconfigPath,
-	}
-
-	err := kind.CreateCluster(config)
-	require.NoError(t, err)
-	defer kind.DeleteCluster(clusterName)
-
-	// First create the CRD
-	crdContent := `apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: profiles.shaper.io
-spec:
-  group: shaper.io
-  names:
-    kind: Profile
-    listKind: ProfileList
-    plural: profiles
-    singular: profile
-  scope: Namespaced
-  versions:
-  - name: v1alpha1
-    served: true
-    storage: true
-    schema:
-      openAPIV3Schema:
-        type: object
-        properties:
-          spec:
-            type: object
-            properties:
-              bootImage:
-                type: string
-`
-	crdPath := filepath.Join(t.TempDir(), "profile-crd.yaml")
-	err = os.WriteFile(crdPath, []byte(crdContent), 0644)
-	require.NoError(t, err)
-
-	err = kind.CreateCRDs(kubeconfigPath, []string{crdPath})
-	require.NoError(t, err)
-
-	// Create a test profile
-	profileYAML := []byte(`apiVersion: shaper.io/v1alpha1
+	// Note: The Shaper CRDs should already be installed by `make test-setup`
+	// Create a test profile with a unique name
+	profileName := "test-profile-" + uuid.NewString()[:8]
+	profileYAML := []byte(`apiVersion: shaper.amahdha.com/v1alpha1
 kind: Profile
 metadata:
-  name: test-profile
+  name: ` + profileName + `
 spec:
-  bootImage: ubuntu-22.04
+  ipxeTemplate: |
+    #!ipxe
+    echo Test profile
 `)
 
-	err = kind.CreateTestProfile(kubeconfigPath, "default", "test-profile", profileYAML)
+	err := kind.CreateTestProfile(kubeconfigPath, "default", profileName, profileYAML)
 	require.NoError(t, err)
 }
 

@@ -2,17 +2,20 @@ package network
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
-	"strings"
+	"sync"
 	"syscall"
 	"text/template"
+
+	"github.com/alexandremahdhaoui/shaper/pkg/execcontext"
 )
 
+// Error variables for dnsmasq operations
 var (
 	ErrInterfaceRequired    = errors.New("interface is required")
 	ErrDHCPRangeRequired    = errors.New("DHCP range is required")
@@ -23,6 +26,7 @@ var (
 	ErrStopDnsmasq          = errors.New("failed to stop dnsmasq")
 	ErrReadPIDFile          = errors.New("failed to read PID file")
 	ErrInvalidPID           = errors.New("invalid PID in PID file")
+	ErrDnsmasqNotFound      = errors.New("dnsmasq process not found")
 )
 
 // DnsmasqConfig contains dnsmasq configuration
@@ -137,42 +141,6 @@ type DnsmasqProcess struct {
 	pidFile    string
 }
 
-// StartDnsmasq starts dnsmasq with given config
-func StartDnsmasq(config DnsmasqConfig, configPath string) (*DnsmasqProcess, error) {
-	// Write config file
-	if err := config.WriteConfig(configPath); err != nil {
-		return nil, err
-	}
-
-	// Ensure TFTP root exists
-	if err := os.MkdirAll(config.TFTPRoot, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create TFTP root: %v", err)
-	}
-
-	// Ensure lease file directory exists
-	if config.LeaseFile != "" {
-		leaseDir := filepath.Dir(config.LeaseFile)
-		if err := os.MkdirAll(leaseDir, 0755); err != nil {
-			return nil, fmt.Errorf("failed to create lease file directory: %v", err)
-		}
-	}
-
-	// Start dnsmasq
-	cmd := exec.Command("dnsmasq", "-C", configPath)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrStartDnsmasq, err)
-	}
-
-	return &DnsmasqProcess{
-		cmd:        cmd,
-		configPath: configPath,
-		pidFile:    config.PIDFile,
-	}, nil
-}
-
 // Stop stops dnsmasq process
 func (d *DnsmasqProcess) Stop() error {
 	if d.cmd == nil || d.cmd.Process == nil {
@@ -213,47 +181,6 @@ func (d *DnsmasqProcess) IsRunning() bool {
 	return err == nil
 }
 
-// StopByPIDFile stops dnsmasq using PID from PID file
-func StopByPIDFile(pidFile string) error {
-	if pidFile == "" {
-		return fmt.Errorf("PID file path is required")
-	}
-
-	// Read PID from file
-	pidBytes, err := os.ReadFile(pidFile)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// PID file doesn't exist, dnsmasq probably not running
-			return nil
-		}
-		return fmt.Errorf("%w: %v", ErrReadPIDFile, err)
-	}
-
-	pidStr := strings.TrimSpace(string(pidBytes))
-	pid, err := strconv.Atoi(pidStr)
-	if err != nil {
-		return fmt.Errorf("%w: %s", ErrInvalidPID, pidStr)
-	}
-
-	// Find process
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		// Process doesn't exist
-		return nil
-	}
-
-	// Send SIGTERM
-	if err := process.Signal(syscall.SIGTERM); err != nil {
-		// Process might already be dead
-		return nil
-	}
-
-	// Clean up PID file
-	_ = os.Remove(pidFile)
-
-	return nil
-}
-
 // waitTimeout returns a channel that closes after 5 seconds
 func (d *DnsmasqProcess) waitTimeout() <-chan struct{} {
 	ch := make(chan struct{})
@@ -270,4 +197,170 @@ func (d *DnsmasqProcess) waitTimeout() <-chan struct{} {
 		}
 	}()
 	return ch
+}
+
+// dnsmasqEntry holds a dnsmasq process and its configuration
+type dnsmasqEntry struct {
+	process *DnsmasqProcess
+	config  DnsmasqConfig
+}
+
+// DnsmasqManager manages dnsmasq processes
+type DnsmasqManager struct {
+	execCtx   execcontext.Context
+	processes map[string]*dnsmasqEntry
+	mu        sync.RWMutex // Protects processes map
+}
+
+// NewDnsmasqManager creates a new DnsmasqManager
+func NewDnsmasqManager(execCtx execcontext.Context) *DnsmasqManager {
+	return &DnsmasqManager{
+		execCtx:   execCtx,
+		processes: make(map[string]*dnsmasqEntry),
+	}
+}
+
+// DnsmasqInfo contains information about a dnsmasq process
+type DnsmasqInfo struct {
+	ID        string
+	Config    DnsmasqConfig
+	IsRunning bool
+	PID       int
+}
+
+// Create starts a new dnsmasq process with the given configuration
+func (m *DnsmasqManager) Create(ctx context.Context, id string, config DnsmasqConfig) error {
+	if id == "" {
+		return errors.New("dnsmasq ID is required")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Check if process with same ID already exists
+	if entry, exists := m.processes[id]; exists {
+		if entry.process.IsRunning() {
+			return fmt.Errorf("dnsmasq process with ID %s already exists and is running", id)
+		}
+		// Process exists but is not running, we can reuse the ID
+		delete(m.processes, id)
+	}
+
+	// Set up config paths based on ID
+	configPath := filepath.Join("/tmp", fmt.Sprintf("dnsmasq-%s.conf", id))
+	if config.PIDFile == "" {
+		config.PIDFile = filepath.Join("/tmp", fmt.Sprintf("dnsmasq-%s.pid", id))
+	}
+	if config.LeaseFile == "" {
+		config.LeaseFile = filepath.Join("/tmp", fmt.Sprintf("dnsmasq-%s.leases", id))
+	}
+
+	// Write config file
+	if err := config.WriteConfig(configPath); err != nil {
+		return err
+	}
+
+	// Ensure TFTP root exists
+	if err := os.MkdirAll(config.TFTPRoot, 0755); err != nil {
+		return fmt.Errorf("failed to create TFTP root: %v", err)
+	}
+
+	// Ensure lease file directory exists
+	if config.LeaseFile != "" {
+		leaseDir := filepath.Dir(config.LeaseFile)
+		if err := os.MkdirAll(leaseDir, 0755); err != nil {
+			return fmt.Errorf("failed to create lease file directory: %v", err)
+		}
+	}
+
+	// Start dnsmasq
+	cmd := exec.Command("dnsmasq", "-C", configPath)
+	execcontext.ApplyToCmd(m.execCtx, cmd)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("%w: %v", ErrStartDnsmasq, err)
+	}
+
+	// Store process and config
+	m.processes[id] = &dnsmasqEntry{
+		process: &DnsmasqProcess{
+			cmd:        cmd,
+			configPath: configPath,
+			pidFile:    config.PIDFile,
+		},
+		config: config,
+	}
+
+	return nil
+}
+
+// Get retrieves information about a dnsmasq process
+// Returns ErrDnsmasqNotFound if the process doesn't exist
+func (m *DnsmasqManager) Get(ctx context.Context, id string) (*DnsmasqInfo, error) {
+	if id == "" {
+		return nil, errors.New("dnsmasq ID is required")
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Look up process
+	entry, exists := m.processes[id]
+	if !exists {
+		return nil, ErrDnsmasqNotFound
+	}
+
+	// Get PID and check if running
+	pid := 0
+	isRunning := false
+	if entry.process.cmd != nil && entry.process.cmd.Process != nil {
+		pid = entry.process.cmd.Process.Pid
+		isRunning = entry.process.IsRunning()
+	}
+
+	return &DnsmasqInfo{
+		ID:        id,
+		Config:    entry.config,
+		IsRunning: isRunning,
+		PID:       pid,
+	}, nil
+}
+
+// Delete stops and removes a dnsmasq process
+// Idempotent - returns nil if process doesn't exist
+func (m *DnsmasqManager) Delete(ctx context.Context, id string) error {
+	if id == "" {
+		return errors.New("dnsmasq ID is required")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Check if process exists
+	entry, exists := m.processes[id]
+	if !exists {
+		// Process doesn't exist, nothing to do
+		return nil
+	}
+
+	// Stop the process
+	if err := entry.process.Stop(); err != nil {
+		// Log error but continue with cleanup
+		// The process might already be stopped
+	}
+
+	// Clean up files
+	if entry.process.pidFile != "" {
+		_ = os.Remove(entry.process.pidFile)
+	}
+	if entry.process.configPath != "" {
+		_ = os.Remove(entry.process.configPath)
+	}
+
+	// Remove from map
+	delete(m.processes, id)
+
+	return nil
 }
