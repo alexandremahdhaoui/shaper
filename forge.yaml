@@ -19,9 +19,26 @@ kindenv:
   kubeconfigPath: .ignore.kindenv.kubeconfig.yaml
 
 # ----------------------------------------------------------------------
+# -- build defines the artifacts to build and the artifact store location.
+build:
+  # -- artifactStorePath is the path to the artifact store yaml file.
+  artifactStorePath: .ignore.artifact-store.yaml
+  # -- specs defines the list of artifacts to build using the BuildSpec format.
+  specs:
+    # Containers
+    - name: shaper-api
+      src: ./containers/shaper-api/Containerfile
+      builder: go://build-container
+    - name: shaper-webhook
+      src: ./containers/shaper-webhook/Containerfile
+      builder: go://build-container
+
+# ----------------------------------------------------------------------
 # -- localContainerRegistry will create if enabled a container registry in the kindenv using the kubeconfig which path
 #    is defined by {.kindenv.kubeconfigPath}.
 localContainerRegistry:
+  # -- autoPushImages defines whether to automatically push images from artifact store on setup.
+  autoPushImages: true
   # -- enabled defines whether the local container registry must be created or not.
   enabled: true
   # -- creadentialPath defines the output file containing the container registry credentials.
@@ -32,12 +49,14 @@ localContainerRegistry:
   namespace: local-container-registry
 
 # ----------------------------------------------------------------------
-oapiCodegenHelper:
+generateOpenAPI:
   defaults:
     # -- sourceDir is the default directory locating the open api specifications.
     sourceDir: ./api
     # -- destinationDir is the default local directory where the generated packages will be written to.
     destinationDir: ./pkg/generated
+    # -- engine that will generate the openapi configuration
+    engine: go://generate-openapi-go
 
   specs:
     # shaper

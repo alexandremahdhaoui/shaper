@@ -11,8 +11,14 @@ import (
 func setupMetricsServer(config *Config) *http.Server {
 	mux := http.NewServeMux()
 
+	// Use default path if not specified
+	path := config.MetricsServer.Path
+	if path == "" {
+		path = "/metrics"
+	}
+
 	// Register metrics handler
-	mux.Handle(config.MetricsServer.Path, promhttp.Handler())
+	mux.Handle(path, promhttp.Handler())
 
 	return &http.Server{ //nolint:exhaustruct
 		Addr:    fmt.Sprintf(":%d", config.MetricsServer.Port),

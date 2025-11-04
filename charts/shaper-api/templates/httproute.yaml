@@ -1,3 +1,4 @@
+{{- if .Values.httpRoute.enabled -}}
 # Copyright 2024 Alexandre Mahdhaoui
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-{{- if .Values.httpRoute.enabled -}}
 {{- $fullName := include "shaper-api.fullname" . -}}
 {{- $apiPort := .Values.config.apiServer.port -}}
 apiVersion: gateway.networking.k8s.io/v1

@@ -1,0 +1,8 @@
+# .dockerignore example
+.git
+.idea
+*.log
+tmp/
+node_modules/
+.ignore*
+.tmp*

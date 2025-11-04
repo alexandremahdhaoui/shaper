@@ -24,7 +24,7 @@ CHARTS     := $(shell ./hack/list-subprojects.sh charts)
 CONTAINERS := $(shell ./hack/list-subprojects.sh containers)
 CMDS       := $(shell ./hack/list-subprojects.sh cmd)
 
-GO_BUILD_LDFLAGS ?= "-X main.BuildTimestamp=$(TIMESTAMP) -X main.CommitSHA=$(COMMIT_SHA) -X main.Version=$(VERSION)"
+GO_BUILD_LDFLAGS ?= -X main.BuildTimestamp=$(TIMESTAMP) -X main.CommitSHA=$(COMMIT_SHA) -X main.Version=$(VERSION)
 
 # ------------------------------------------------------- VERSIONS --------------------------------------------------- #
 
@@ -40,8 +40,8 @@ GOTESTSUM_VERSION      := v1.13.0
 MOCKERY_VERSION        := v3.5.5
 # renovate: datasource=github-release depName=oapi-codegen/oapi-codegen
 OAPI_CODEGEN_VERSION   := v2.5.0
-# renovate: datasource=github-release depName=alexandremahdhaoui/tooling
-TOOLING_VERSION        := v0.1.4
+# renovate: datasource=github-release depName=alexandremahdhaoui/forge
+FORGE_VERSION        := v0.3.1
 # renovate: datasource=github-release depName=mikefarah/yq
 YQ_VERSION             := v4.44.5
 
@@ -52,25 +52,26 @@ KIND_BINARY        ?= kind
 # unsetting KIND_BINARY_PREFIX
 KIND_BINARY_PREFIX ?=
 
-KINDENV_ENVS := KIND_BINARY_PREFIX="$(KIND_BINARY_PREFIX)" KIND_BINARY="$(KIND_BINARY)"
 
-TOOLING := go run github.com/alexandremahdhaoui/tooling/cmd
+FORGE := go run github.com/alexandremahdhaoui/forge/cmd
 
 YQ                  := go run github.com/mikefarah/yq/v4@$(YQ_VERSION)
 CONTROLLER_GEN      := go run sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION)
-KINDENV             := $(KINDENV_ENVS) $(TOOLING)/kindenv@$(TOOLING_VERSION)
 GO_GEN              := go generate
 GOFUMPT             := go run mvdan.cc/gofumpt@$(GOFUMPT_VERSION)
 GOLANGCI_LINT       := go run github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 GOTESTSUM           := go run gotest.tools/gotestsum@$(GOTESTSUM_VERSION) --format pkgname-and-test-fails --format-hide-empty-pkg
-LOCAL_CONTAINER_REG := $(TOOLING)/local-container-registry@$(TOOLING_VERSION)
 MOCKERY             := go run github.com/vektra/mockery/v3@$(MOCKERY_VERSION)
 OAPI_CODEGEN        := go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@$(OAPI_CODEGEN_VERSION)
-OAPI_CODEGEN_HELPER := OAPI_CODEGEN="$(OAPI_CODEGEN)" $(TOOLING)/oapi-codegen-helper@$(TOOLING_VERSION)
+OAPI_CODEGEN_HELPER := OAPI_CODEGEN="$(OAPI_CODEGEN)" $(FORGE)/oapi-codegen-helper@$(FORGE_VERSION)
+
+BUILD_CONTAINER     := CONTAINER_ENGINE="$(CONTAINER_ENGINE)" BUILD_ARGS="GO_BUILD_LDFLAGS=$(GO_BUILD_LDFLAGS)" $(FORGE)/build-container@$(FORGE_VERSION)
+KINDENV             := KIND_BINARY_PREFIX="$(KIND_BINARY_PREFIX)" KIND_BINARY="$(KIND_BINARY)" $(FORGE)/kindenv@$(FORGE_VERSION)
+LOCAL_CONTAINER_REG := CONTAINER_ENGINE="$(CONTAINER_ENGINE)" PREPEND_CMD="sudo" $(FORGE)/local-container-registry@$(FORGE_VERSION)
 
 CLEAN_MOCKS := rm -rf ./internal/util/mocks
 
-KUBECONFIG := $(abspath $(shell $(YQ) '.kindenv.kubeconfigPath' .project.yaml))
+KUBECONFIG := $(abspath $(shell $(YQ) '.kindenv.kubeconfigPath' forge.yaml))
 
 .PHONY: modules
 modules: ## Run go mod tidy
@@ -135,16 +136,7 @@ build-binaries: generate ## Build the binaries.
 
 .PHONY: build-container
 build-container: generate
-	CONTAINER_ENGINE=$(CONTAINER_ENGINE) GO_BUILD_LDFLAGS=$(GO_BUILD_LDFLAGS) VERSION=$(VERSION) \
-		./hack/build-container.sh "${CONTAINER_NAME}"
-
-.PHONY: build-containers
-build-containers: generate
-	echo $(CONTAINERS) | \
-		CONTAINER_ENGINE=$(CONTAINER_ENGINE) \
-		GO_BUILD_LDFLAGS=$(GO_BUILD_LDFLAGS) \
-		VERSION=$(VERSION) \
-		xargs -n1 ./hack/build-container.sh
+	$(BUILD_CONTAINER)
 
 # ------------------------------------------------------- FMT -------------------------------------------------------- #
 
@@ -178,16 +170,30 @@ test-e2e:
 
 .PHONY: test-setup
 test-setup:
+	@echo "======================================"
+	@echo "Installing kindenv..."
+	@echo "======================================"
 	$(KINDENV) setup
+
+	@echo "======================================"
+	@echo "Installing local-container-registry..."
+	@echo "======================================"
+	$(LOCAL_CONTAINER_REG)
+
+	@echo "======================================"
 	@echo "Applying crds..."
+	@echo "======================================"
 	KUBECONFIG=$(KUBECONFIG) kubectl apply -f ./charts/shaper-crds/templates/crds/
-	@echo "Installing cert-manager..."
-	KUBECONFIG=$(KUBECONFIG) kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.0/cert-manager.yaml && \
-	KUBECONFIG=$(KUBECONFIG) kubectl wait --for=condition=Available --timeout=300s -n cert-manager deployment/cert-manager-webhook
+
 	@echo "\nPlease run the following command to set up your kubeconfig:\n    export KUBECONFIG=$(KUBECONFIG)\n"
+
+.PHONY: test-sync
+test-sync: build-container
+	$(LOCAL_CONTAINER_REG) push-all
 
 .PHONY: test-teardown
 test-teardown:
+	$(LOCAL_CONTAINER_REG) teardown || true
 	$(KINDENV) teardown
 
 .PHONY: test

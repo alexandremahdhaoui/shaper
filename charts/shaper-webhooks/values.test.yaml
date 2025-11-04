@@ -1,0 +1,12 @@
+# Test environment values for shaper-webhooks
+# This file configures the chart to use the local container registry
+# Uses cluster IP instead of DNS name because kubelet runs on the node
+# and cannot resolve Kubernetes service DNS names
+
+image:
+  repository: 10.96.69.207:5000/shaper-webhook
+  pullPolicy: Always
+  tag: "bcdd2b9ce726a21c242444e8098042a92fee0774"
+
+imagePullSecrets:
+  - name: local-registry-secret

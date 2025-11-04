@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	helmChartPath = "../../charts/shaper-api"
+	helmChartPath = "../../../charts/shaper-api"
 	testNamespace = "shaper-api-test"
 	testTimeout   = 5 * time.Minute
 )

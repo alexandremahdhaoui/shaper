@@ -19,16 +19,15 @@ package main
 import (
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"github.com/alexandremahdhaoui/shaper/internal/adapter"
 	driverwebhook "github.com/alexandremahdhaoui/shaper/internal/driver/webhook"
 	"github.com/alexandremahdhaoui/shaper/internal/util/gracefulshutdown"
-	"github.com/alexandremahdhaoui/shaper/internal/util/httputil"
 )
 
 const (
@@ -89,7 +88,8 @@ func main() {
 
 	// Create controller-runtime manager with webhook server options
 	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{ //nolint:exhaustruct
-		Scheme: cl.Scheme(),
+		Scheme:                 cl.Scheme(),
+		HealthProbeBindAddress: fmt.Sprintf(":%d", config.ProbesServer.Port),
 		WebhookServer: webhook.NewServer(webhook.Options{ //nolint:exhaustruct
 			Port:     config.WebhookServer.Port,
 			CertDir:  config.WebhookServer.CertDir,
@@ -99,6 +99,16 @@ func main() {
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "creating controller-runtime manager", "error", err.Error())
+		gs.Shutdown(1)
+	}
+
+	// Add health and ready checks
+	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+		slog.ErrorContext(ctx, "setting up health check", "error", err.Error())
+		gs.Shutdown(1)
+	}
+	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+		slog.ErrorContext(ctx, "setting up ready check", "error", err.Error())
 		gs.Shutdown(1)
 	}
 
@@ -113,17 +123,6 @@ func main() {
 		slog.ErrorContext(ctx, "setting up webhook server", "error", err.Error())
 		gs.Shutdown(1)
 	}
-
-	// --------------------------------------------- Metrics & Probes ----------------------------------------------- //
-
-	metricsServer := setupMetricsServer(config)
-	probesServer := setupProbesServer(config)
-
-	// Start metrics and probes servers
-	go httputil.Serve(map[string]*http.Server{
-		"metrics": metricsServer,
-		"probes":  probesServer,
-	}, gs)
 
 	// --------------------------------------------- Run Manager ---------------------------------------------------- //
 
