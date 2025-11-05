@@ -219,7 +219,7 @@ func CreateTestProfile(kubeconfig, namespace, name string, profileYAML []byte) e
 
 	// Write profile to temp file
 	tempFile := filepath.Join(os.TempDir(), fmt.Sprintf("profile-%s.yaml", name))
-	if err := os.WriteFile(tempFile, profileYAML, 0644); err != nil {
+	if err := os.WriteFile(tempFile, profileYAML, 0o644); err != nil {
 		return fmt.Errorf("failed to write profile YAML: %v", err)
 	}
 	defer os.Remove(tempFile)
@@ -236,7 +236,7 @@ func CreateTestAssignment(kubeconfig, namespace, name string, assignmentYAML []b
 
 	// Write assignment to temp file
 	tempFile := filepath.Join(os.TempDir(), fmt.Sprintf("assignment-%s.yaml", name))
-	if err := os.WriteFile(tempFile, assignmentYAML, 0644); err != nil {
+	if err := os.WriteFile(tempFile, assignmentYAML, 0o644); err != nil {
 		return fmt.Errorf("failed to write assignment YAML: %v", err)
 	}
 	defer os.Remove(tempFile)

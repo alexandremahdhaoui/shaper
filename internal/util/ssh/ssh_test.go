@@ -1,3 +1,5 @@
+//go:build unit
+
 /*
 Copyright 2024 Alexandre Mahdhaoui
 
@@ -13,8 +15,6 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-
-//go:build unit
 
 package ssh_test
 
@@ -44,7 +44,7 @@ zSr5QdBnvJWpRvthDG1yAAAAE3Rlc3RAZXhhbXBsZS5sb2NhbAECAw==
 
 	// Write key to temp file
 	keyPath := filepath.Join(tempDir, "id_rsa")
-	err := os.WriteFile(keyPath, []byte(testPrivateKey), 0600)
+	err := os.WriteFile(keyPath, []byte(testPrivateKey), 0o600)
 	require.NoError(t, err)
 
 	// Create SSH client

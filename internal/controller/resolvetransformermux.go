@@ -63,8 +63,8 @@ func NewResolveTransformerMux(
 ) ResolveTransformerMux {
 	return &resolveTransformerMux{
 		shaperBaseURL: shaperBaseURL,
-		resolvers:    resolvers,
-		transformers: transformers,
+		resolvers:     resolvers,
+		transformers:  transformers,
 	}
 }
 

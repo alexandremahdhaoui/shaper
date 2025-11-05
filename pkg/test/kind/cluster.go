@@ -175,7 +175,7 @@ func exportKubeconfig(name, path string) error {
 	}
 
 	// Write to file
-	if err := os.WriteFile(path, []byte(kubeconfig), 0600); err != nil {
+	if err := os.WriteFile(path, []byte(kubeconfig), 0o600); err != nil {
 		return fmt.Errorf("failed to write kubeconfig: %v", err)
 	}
 

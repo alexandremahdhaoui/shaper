@@ -3,11 +3,12 @@
 package kind_test
 
 import (
-	"github.com/alexandremahdhaoui/shaper/pkg/test/kind"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/alexandremahdhaoui/shaper/pkg/test/kind"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -51,7 +52,7 @@ data:
   key: value
 `
 	manifestPath := filepath.Join(t.TempDir(), "configmap.yaml")
-	err := os.WriteFile(manifestPath, []byte(manifestContent), 0644)
+	err := os.WriteFile(manifestPath, []byte(manifestContent), 0o644)
 	require.NoError(t, err)
 
 	// Apply manifest
@@ -99,7 +100,7 @@ spec:
                 type: string
 `
 	crdPath := filepath.Join(t.TempDir(), "crd.yaml")
-	err := os.WriteFile(crdPath, []byte(crdContent), 0644)
+	err := os.WriteFile(crdPath, []byte(crdContent), 0o644)
 	require.NoError(t, err)
 
 	// Apply CRD
@@ -171,4 +172,3 @@ spec:
 	err := kind.CreateTestProfile(kubeconfigPath, "default", profileName, profileYAML)
 	require.NoError(t, err)
 }
-

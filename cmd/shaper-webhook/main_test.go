@@ -9,9 +9,9 @@ import (
 
 func TestHealthProbeBindAddress(t *testing.T) {
 	tests := []struct {
-		name       string
-		port       int
-		expected   string
+		name     string
+		port     int
+		expected string
 	}{
 		{
 			name:     "port 8081",

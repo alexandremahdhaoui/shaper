@@ -59,7 +59,7 @@ func TestNewKubeRestConfig_InCluster(t *testing.T) {
 func TestNewKubeRestConfig_InvalidFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	kubeconfigPath := filepath.Join(tmpDir, "invalid-kubeconfig")
-	err := os.WriteFile(kubeconfigPath, []byte("invalid kubeconfig content"), 0644)
+	err := os.WriteFile(kubeconfigPath, []byte("invalid kubeconfig content"), 0o644)
 	require.NoError(t, err)
 
 	_, err = k8s.NewKubeRestConfig(kubeconfigPath)

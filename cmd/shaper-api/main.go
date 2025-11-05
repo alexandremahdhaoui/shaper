@@ -226,11 +226,10 @@ func main() {
 	// --------------------------------------------- Run Server ----------------------------------------------------- //
 
 	httputil.Serve(map[string]*http.Server{
-		"shaper":   shaperServer,
+		"shaper":  shaperServer,
 		"metrics": metrics,
 		"probes":  probes,
 	}, gs)
 
 	slog.Info("✅ gracefully stopped", "binary", Name)
 }
-

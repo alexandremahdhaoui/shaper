@@ -39,9 +39,9 @@ type ShaperSetupConfig struct {
 	IPXEBootFile string // Path to undionly.kpxe or ipxe.efi
 
 	// Client VMs
-	NumClients     int
-	ClientMemoryMB uint
-	ClientVCPUs    uint
+	NumClients      int
+	ClientMemoryMB  uint
+	ClientVCPUs     uint
 	ClientImagePath string // Path to client VM image
 
 	// Download images if missing
@@ -90,13 +90,13 @@ func SetupShaperTestEnvironment(config ShaperSetupConfig) (*ShaperTestEnvironmen
 
 	// Create artifact directory
 	env.ArtifactPath = filepath.Join(config.ArtifactDir, testID)
-	if err := os.MkdirAll(env.ArtifactPath, 0755); err != nil {
+	if err := os.MkdirAll(env.ArtifactPath, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create artifact directory: %v", err)
 	}
 
 	// Create temp directory root
 	env.TempDirRoot = filepath.Join(os.TempDir(), testID)
-	if err := os.MkdirAll(env.TempDirRoot, 0755); err != nil {
+	if err := os.MkdirAll(env.TempDirRoot, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create temp directory: %v", err)
 	}
 	env.TempDirs = append(env.TempDirs, env.TempDirRoot)
@@ -316,14 +316,14 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(dst, data, 0644)
+	return os.WriteFile(dst, data, 0o644)
 }
 
 func downloadVMImage(url, destPath string) error {
 	// Simple download using wget
 	// Ensure directory exists
 	dir := filepath.Dir(destPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("failed to create directory: %v", err)
 	}
 

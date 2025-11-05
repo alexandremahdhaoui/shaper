@@ -33,7 +33,7 @@ func TestIPXEBootFlow_E2E(t *testing.T) {
 	// Setup test environment
 	tempDir := t.TempDir()
 	imageCacheDir := filepath.Join(os.TempDir(), "shaper-e2e-images")
-	if err := os.MkdirAll(imageCacheDir, 0755); err != nil {
+	if err := os.MkdirAll(imageCacheDir, 0o755); err != nil {
 		t.Fatalf("Failed to create image cache dir: %v", err)
 	}
 

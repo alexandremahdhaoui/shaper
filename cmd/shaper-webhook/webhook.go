@@ -5,8 +5,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"github.com/alexandremahdhaoui/shaper/pkg/v1alpha1"
 	driverwebhook "github.com/alexandremahdhaoui/shaper/internal/driver/webhook"
+	"github.com/alexandremahdhaoui/shaper/pkg/v1alpha1"
 )
 
 // setupWebhookServer registers webhooks with the controller-runtime manager.

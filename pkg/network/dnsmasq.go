@@ -122,12 +122,12 @@ func (c *DnsmasqConfig) WriteConfig(path string) error {
 
 	// Ensure directory exists
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("failed to create config directory: %v", err)
 	}
 
 	// Write config file
-	if err := os.WriteFile(path, content, 0644); err != nil {
+	if err := os.WriteFile(path, content, 0o644); err != nil {
 		return fmt.Errorf("failed to write config file: %v", err)
 	}
 
@@ -261,14 +261,14 @@ func (m *DnsmasqManager) Create(ctx context.Context, id string, config DnsmasqCo
 	}
 
 	// Ensure TFTP root exists
-	if err := os.MkdirAll(config.TFTPRoot, 0755); err != nil {
+	if err := os.MkdirAll(config.TFTPRoot, 0o755); err != nil {
 		return fmt.Errorf("failed to create TFTP root: %v", err)
 	}
 
 	// Ensure lease file directory exists
 	if config.LeaseFile != "" {
 		leaseDir := filepath.Dir(config.LeaseFile)
-		if err := os.MkdirAll(leaseDir, 0755); err != nil {
+		if err := os.MkdirAll(leaseDir, 0o755); err != nil {
 			return fmt.Errorf("failed to create lease file directory: %v", err)
 		}
 	}

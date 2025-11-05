@@ -614,7 +614,7 @@ func (s *JSONArtifactStore) Save(env *e2e.ShaperTestEnvironment) error {
 		return fmt.Errorf("failed to marshal store: %w", err)
 	}
 
-	if err := os.WriteFile(s.filePath, data, 0644); err != nil {
+	if err := os.WriteFile(s.filePath, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write store: %w", err)
 	}
 
@@ -661,7 +661,7 @@ func (s *JSONArtifactStore) Delete(id string) error {
 		return fmt.Errorf("failed to marshal store: %w", err)
 	}
 
-	if err := os.WriteFile(s.filePath, data, 0644); err != nil {
+	if err := os.WriteFile(s.filePath, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write store: %w", err)
 	}
 

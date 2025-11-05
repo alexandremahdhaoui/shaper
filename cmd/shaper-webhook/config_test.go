@@ -96,7 +96,7 @@ metricsServer:
 			// Create temporary config file
 			tmpDir := t.TempDir()
 			configPath := filepath.Join(tmpDir, "config.yaml")
-			err := os.WriteFile(configPath, []byte(tt.configYAML), 0644)
+			err := os.WriteFile(configPath, []byte(tt.configYAML), 0o644)
 			require.NoError(t, err)
 
 			// Set environment variable
@@ -159,7 +159,7 @@ func TestLoadConfig_NonExistentFile(t *testing.T) {
 func TestLoadConfig_InvalidYAML(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.yaml")
-	err := os.WriteFile(configPath, []byte("invalid: yaml: content: ["), 0644)
+	err := os.WriteFile(configPath, []byte("invalid: yaml: content: ["), 0o644)
 	require.NoError(t, err)
 
 	t.Setenv(ConfigPathEnvKey, configPath)

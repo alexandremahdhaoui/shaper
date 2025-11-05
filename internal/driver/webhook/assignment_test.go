@@ -1,3 +1,5 @@
+//go:build unit
+
 /*
 Copyright 2024 Alexandre Mahdhaoui
 
@@ -13,8 +15,6 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-
-//go:build unit
 
 package webhook_test
 
@@ -387,11 +387,11 @@ func TestAssignment_ValidateUpdate(t *testing.T) {
 	testUUID := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
 
 	tests := []struct {
-		name            string
-		oldAssignment   *v1alpha1.Assignment
-		newAssignment   *v1alpha1.Assignment
-		setupMocks      func(*mockadapter.MockAssignment, *mockadapter.MockProfile)
-		expectError     bool
+		name          string
+		oldAssignment *v1alpha1.Assignment
+		newAssignment *v1alpha1.Assignment
+		setupMocks    func(*mockadapter.MockAssignment, *mockadapter.MockProfile)
+		expectError   bool
 	}{
 		{
 			name: "valid update",
