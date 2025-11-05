@@ -27,6 +27,7 @@ import (
 
 	"github.com/alexandremahdhaoui/shaper/internal/adapter"
 	driverwebhook "github.com/alexandremahdhaoui/shaper/internal/driver/webhook"
+	"github.com/alexandremahdhaoui/shaper/internal/k8s"
 	"github.com/alexandremahdhaoui/shaper/internal/util/gracefulshutdown"
 )
 
@@ -67,13 +68,13 @@ func main() {
 
 	// --------------------------------------------- Client --------------------------------------------------------- //
 
-	restConfig, err := newKubeRestConfig(config.KubeconfigPath)
+	restConfig, err := k8s.NewKubeRestConfig(config.KubeconfigPath)
 	if err != nil {
 		slog.ErrorContext(ctx, "creating kube rest config", "error", err.Error())
 		gs.Shutdown(1)
 	}
 
-	cl, err := newKubeClient(restConfig)
+	cl, err := k8s.NewKubeClient(restConfig)
 	if err != nil {
 		slog.ErrorContext(ctx, "creating kube client", "error", err.Error())
 		gs.Shutdown(1)

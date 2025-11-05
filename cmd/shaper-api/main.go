@@ -25,14 +25,7 @@ import (
 	"time"
 
 	"github.com/alexandremahdhaoui/shaper/internal/util/httputil"
-	shaperv1alpha1 "github.com/alexandremahdhaoui/shaper/pkg/v1alpha1"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
-
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/alexandremahdhaoui/shaper/pkg/generated/shaperserver"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -40,6 +33,7 @@ import (
 	"github.com/alexandremahdhaoui/shaper/internal/adapter"
 	"github.com/alexandremahdhaoui/shaper/internal/controller"
 	"github.com/alexandremahdhaoui/shaper/internal/driver/server"
+	"github.com/alexandremahdhaoui/shaper/internal/k8s"
 	"github.com/alexandremahdhaoui/shaper/internal/types"
 	"github.com/alexandremahdhaoui/shaper/internal/util/gracefulshutdown"
 )
@@ -47,8 +41,6 @@ import (
 const (
 	Name             = "shaper-api"
 	ConfigPathEnvKey = "IPXER_CONFIG_PATH"
-
-	KubeconfigFromServiceAccount = ">>> Kubeconfig From Service Account"
 )
 
 var (
@@ -137,13 +129,13 @@ func main() {
 
 	// --------------------------------------------- Client --------------------------------------------------------- //
 
-	restConfig, err := newKubeRestConfig(config.KubeconfigPath)
+	restConfig, err := k8s.NewKubeRestConfig(config.KubeconfigPath)
 	if err != nil {
 		slog.ErrorContext(ctx, "creating kube rest config", "error", err.Error())
 		gs.Shutdown(1)
 	}
 
-	cl, err := newKubeClient(restConfig)
+	cl, err := k8s.NewKubeClient(restConfig)
 	if err != nil {
 		slog.ErrorContext(ctx, "creating kube client", "error", err.Error())
 		gs.Shutdown(1)
@@ -242,41 +234,3 @@ func main() {
 	slog.Info("✅ gracefully stopped", "binary", Name)
 }
 
-// ------------------------------------------------- Helpers -------------------------------------------------------- //
-
-func newKubeRestConfig(kubeconfigPath string) (*rest.Config, error) {
-	if kubeconfigPath == KubeconfigFromServiceAccount {
-		return rest.InClusterConfig() // TODO: wrap err
-	}
-
-	b, err := os.ReadFile(kubeconfigPath)
-	if err != nil {
-		return nil, err // TODO: wrap err
-	}
-
-	restConfig, err := clientcmd.RESTConfigFromKubeConfig(b)
-	if err != nil {
-		return nil, err // TODO: wrap err
-	}
-
-	return restConfig, nil
-}
-
-func newKubeClient(restConfig *rest.Config) (client.Client, error) { //nolint:ireturn
-	sch := runtime.NewScheme()
-
-	if err := corev1.AddToScheme(sch); err != nil {
-		return nil, err // TODO: wrap err
-	}
-
-	if err := shaperv1alpha1.AddToScheme(sch); err != nil {
-		return nil, err // TODO: wrap err
-	}
-
-	cl, err := client.New(restConfig, client.Options{Scheme: sch}) //nolint:exhaustruct
-	if err != nil {
-		return nil, err // TODO: wrap err
-	}
-
-	return cl, nil
-}

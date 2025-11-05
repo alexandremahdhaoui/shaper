@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -49,6 +50,18 @@ func TestShaperAPIIntegration_FullLifecycle(t *testing.T) {
 	require.NoError(t, err, "failed to get chart absolute path")
 	require.DirExists(t, chartPath, "helm chart directory not found")
 
+	// Get local registry image configuration
+	imageRepository, imageTag := getLocalRegistryImage(t, kubeconfigPath, "shaper-api")
+	t.Logf("Using image: %s:%s", imageRepository, imageTag)
+
+	// Create namespace first (helm will use it with --create-namespace but won't fail if it exists)
+	t.Logf("Creating test namespace: %s", namespace)
+	cmd := exec.Command("kubectl", "--kubeconfig", kubeconfigPath, "create", "namespace", namespace)
+	_ = cmd.Run() // Ignore error if namespace already exists
+
+	// Note: Registry secret not needed since we use imagePullPolicy: Never with pre-loaded images
+	// copyRegistrySecret(t, kubeconfigPath, namespace)
+
 	// Install helm chart
 	helmConfig := kind.HelmConfig{
 		Kubeconfig:  kubeconfigPath,
@@ -56,7 +69,10 @@ func TestShaperAPIIntegration_FullLifecycle(t *testing.T) {
 		ReleaseName: releaseName,
 		ChartPath:   chartPath,
 		Values: map[string]string{
-			"crds.enabled": "false", // Assume CRDs already installed by test-setup
+			"crds.enabled":     "false", // Assume CRDs already installed by test-setup
+			"image.repository": imageRepository,
+			"image.tag":        imageTag,
+			"image.pullPolicy": "Never", // Use locally loaded image (via kind load)
 		},
 		WaitTimeout: testTimeout,
 	}
@@ -180,12 +196,13 @@ metadata:
     test: integration
 spec:
   subjectSelectors:
-    uuid: "%s"
-    buildarch: "%s"
-  profileSelectors:
-    matchLabels:
-      test: integration
-`, assignmentName, testUUID, testBuildarch))
+    uuidList:
+      - "%s"
+    buildarch:
+      - "%s"
+  profileName: %s
+  isDefault: false
+`, assignmentName, testUUID, testBuildarch, profileName))
 
 	err = kind.CreateTestAssignment(kubeconfigPath, "default", assignmentName, assignmentYAML)
 	require.NoError(t, err, "failed to create test assignment")
@@ -300,7 +317,8 @@ func getTestKubeconfig(t *testing.T) string {
 	t.Helper()
 
 	// Check for project kubeconfig (created by `make test-setup`)
-	projectRoot, err := filepath.Abs("../..")
+	// Navigate up from test/integration/shaper-api to project root
+	projectRoot, err := filepath.Abs("../../..")
 	require.NoError(t, err)
 
 	projectKubeconfig := filepath.Join(projectRoot, "test", "shaper-kubeconfig")
@@ -315,4 +333,41 @@ func getTestKubeconfig(t *testing.T) string {
 
 	t.Skip("No test kubeconfig found. Run `make test-setup` first.")
 	return ""
+}
+
+// copyRegistrySecret copies the local-container-registry-credentials secret to the target namespace
+func copyRegistrySecret(t *testing.T, kubeconfigPath, targetNamespace string) {
+	t.Helper()
+
+	// Get the secret from local-container-registry namespace and copy it to target namespace
+	cmd := exec.Command("sh", "-c",
+		fmt.Sprintf("kubectl --kubeconfig %s get secret local-container-registry-credentials -n local-container-registry -o yaml | "+
+			"kubectl --kubeconfig %s apply -n %s -f -",
+			kubeconfigPath, kubeconfigPath, targetNamespace))
+	output, err := cmd.CombinedOutput()
+
+	// Ignore "already exists" or "unchanged" errors
+	if err != nil && !strings.Contains(string(output), "created") && !strings.Contains(string(output), "configured") && !strings.Contains(string(output), "unchanged") {
+		t.Logf("Failed to copy secret, output: %s", string(output))
+		require.NoError(t, err, "failed to copy local-container-registry-credentials to test namespace")
+	}
+}
+
+// getLocalRegistryImage returns the image repository and tag for the local registry
+func getLocalRegistryImage(t *testing.T, kubeconfigPath, imageName string) (repository, tag string) {
+	t.Helper()
+
+	// Get commit SHA using git
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	output, err := cmd.Output()
+	require.NoError(t, err, "failed to get git commit SHA")
+	commitSHA := strings.TrimSpace(string(output))
+
+	// Use the DNS name for the registry (required for TLS certificate validation)
+	// The certificate has SANs for the DNS name, not the ClusterIP
+	registryDNS := "local-container-registry.local-container-registry.svc.cluster.local"
+	repository = fmt.Sprintf("%s:5000/%s", registryDNS, imageName)
+	tag = commitSHA
+
+	return repository, tag
 }
