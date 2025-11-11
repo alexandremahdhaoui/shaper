@@ -12,9 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FIX_ASAP:
-  - Fix the CR in the E2E test
-
 refactoring:
   IMPORTANT: |-
     For the `/config` endpoint, don't use the profile name (only use the config UUID).

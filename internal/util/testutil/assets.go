@@ -19,6 +19,7 @@ package testutil
 import (
 	"fmt"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 
 	"github.com/alexandremahdhaoui/shaper/internal/types"
@@ -238,4 +239,58 @@ func MakeProfileComparable(profile types.Profile) types.Profile {
 
 func webhookURL() string {
 	return fmt.Sprintf("%s:%d/%s", WebhookServerFQDN, WebhookServerPort, WebhookServerURLPath)
+}
+
+// ExposedContentItem represents a content item configuration for testing.
+type ExposedContentItem struct {
+	Name    string
+	UUID    uuid.UUID
+	Body    string
+	Exposed bool
+}
+
+// NewV1alpha1ProfileWithExposedContent creates a v1alpha1.Profile with exposed content items
+// and properly formatted UUID labels.
+func NewV1alpha1ProfileWithExposedContent(
+	name string,
+	exposedContentItems []ExposedContentItem,
+) v1alpha1.Profile {
+	// Initialize labels map
+	labels := make(map[string]string)
+
+	// Build ipxe template with references to all content
+	ipxeTemplate := "#!ipxe\n"
+	ipxeTemplate += "echo Test profile with exposed content\n"
+	for _, item := range exposedContentItems {
+		ipxeTemplate += fmt.Sprintf("echo Content %s: {{ .AdditionalContent.%s }}\n", item.Name, item.Name)
+	}
+
+	// Build additional content slice and set labels for exposed items
+	additionalContent := make([]v1alpha1.AdditionalContent, 0, len(exposedContentItems))
+	for _, item := range exposedContentItems {
+		content := v1alpha1.AdditionalContent{
+			Name:                item.Name,
+			Exposed:             item.Exposed,
+			Inline:              ptr.To(item.Body),
+			PostTransformations: nil,
+		}
+		additionalContent = append(additionalContent, content)
+
+		// Add UUID label only for exposed content
+		if item.Exposed {
+			labelKey := v1alpha1.NewUUIDLabelSelector(item.UUID)
+			labels[labelKey] = item.Name
+		}
+	}
+
+	return v1alpha1.Profile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   name,
+			Labels: labels,
+		},
+		Spec: v1alpha1.ProfileSpec{
+			IPXETemplate:      ipxeTemplate,
+			AdditionalContent: additionalContent,
+		},
+	}
 }

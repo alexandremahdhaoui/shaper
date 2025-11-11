@@ -1,3 +1,5 @@
+//go:build e2e
+
 package vmm
 
 // VMMetadata holds information about a virtual machine

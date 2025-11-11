@@ -15,3 +15,15 @@ limitations under the License.
 */
 
 package main
+
+import (
+	"fmt"
+	"os"
+)
+
+// TODO: Implement Kubernetes controller for CRD reconciliation
+// This is a placeholder implementation
+func main() {
+	fmt.Fprintln(os.Stderr, "shaper-controller: not yet implemented")
+	os.Exit(1)
+}

@@ -93,7 +93,7 @@ func UUIDLabelSelectors(labels map[string]string) (idNameMap map[uuid.UUID]strin
 		}
 
 		idNameMap[id] = v
-		reverse[k] = id
+		reverse[v] = id // Fixed: reverse map should map content name (v) to UUID, not label key (k) to UUID
 	}
 
 	return idNameMap, reverse, nil

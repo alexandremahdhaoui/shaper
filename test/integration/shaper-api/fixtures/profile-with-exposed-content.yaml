@@ -1,0 +1,59 @@
+apiVersion: shaper.amahdha.com/v1alpha1
+kind: Profile
+metadata:
+  name: test-profile-exposed-content
+  namespace: default
+  labels:
+    test: integration
+spec:
+  ipxeTemplate: |
+    #!ipxe
+    echo Testing exposed content
+    echo Ignition config will be at: /content/{{ .AdditionalContent.ignition-config }}
+    echo Cloud-init config will be at: /content/{{ .AdditionalContent.cloud-init-config }}
+    echo Butane config will be at: /content/{{ .AdditionalContent.butane-config }}
+    echo Internal param: {{ .AdditionalContent.internal-param }}
+  additionalContent:
+    - name: ignition-config
+      exposed: true
+      inline: |
+        {
+          "ignition": {
+            "version": "3.0.0"
+          },
+          "storage": {
+            "files": [{
+              "path": "/etc/hostname",
+              "contents": {
+                "source": "data:,test-hostname"
+              }
+            }]
+          }
+        }
+      postTransformations: []
+    - name: cloud-init-config
+      exposed: true
+      inline: |
+        #cloud-config
+        hostname: test-machine
+        runcmd:
+          - echo "Hello from cloud-init"
+          - touch /tmp/cloud-init-ran
+      postTransformations: []
+    - name: butane-config
+      exposed: true
+      inline: |
+        variant: fcos
+        version: 1.5.0
+        storage:
+          files:
+            - path: /etc/hello.txt
+              contents:
+                inline: Hello from Butane!
+              mode: 0644
+      postTransformations:
+        - butaneToIgnition: true
+    - name: internal-param
+      exposed: false
+      inline: "secret-value-not-exposed"
+      postTransformations: []

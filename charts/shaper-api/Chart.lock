@@ -1,6 +1,0 @@
-dependencies:
-- name: shaper-crds
-  repository: file://../shaper-crds
-  version: 0.1.0
-digest: sha256:96f2c9e579a59b704118e6cfb17e58752d5ecdf158773b385fbeb42a5b39698f
-generated: "2025-11-02T20:42:55.114294379+01:00"

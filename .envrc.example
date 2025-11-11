@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 
-export IPXER_CONFIG_PATH=.tmp/e2e/config.yaml
+export KIND_BINARY="$(which kind)"
+export CONTAINER_ENGINE="$(which docker)"
+export ELEVATED_PREPEND_CMD="sudo -E"
 
+# TODO: verify if config below is required.
+export IPXER_CONFIG_PATH=.tmp/e2e/config.yaml
 cat <<EOF | yq -o json | tee "${IPXER_CONFIG_PATH}"
 assignmentNamespace: shaper
 profileNamespace: shaper

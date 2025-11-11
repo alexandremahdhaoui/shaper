@@ -12,41 +12,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+apiVersion: v1
 name: shaper
+artifactStorePath: .forge/artifact-store.yaml
 
 # ----------------------------------------------------------------------
-kindenv:
-  kubeconfigPath: .ignore.kindenv.kubeconfig.yaml
+# -- test defines the test specifications
+test:
+  # -- verify-tags - verify all test files have build tags
+  - name: verify-tags
+    runner: "go://test-runner-go-verify-tags"
 
-# ----------------------------------------------------------------------
-# -- build defines the artifacts to build and the artifact store location.
-build:
-  # -- artifactStorePath is the path to the artifact store yaml file.
-  artifactStorePath: .ignore.artifact-store.yaml
-  # -- specs defines the list of artifacts to build using the BuildSpec format.
-  specs:
-    # Containers
-    - name: shaper-api
-      src: ./containers/shaper-api/Containerfile
-      builder: go://build-container
-    - name: shaper-webhook
-      src: ./containers/shaper-webhook/Containerfile
-      builder: go://build-container
+  # Linting
+  - name: lint
+    runner: go://lint-go
 
-# ----------------------------------------------------------------------
-# -- localContainerRegistry will create if enabled a container registry in the kindenv using the kubeconfig which path
-#    is defined by {.kindenv.kubeconfigPath}.
-localContainerRegistry:
-  # -- autoPushImages defines whether to automatically push images from artifact store on setup.
-  autoPushImages: true
-  # -- enabled defines whether the local container registry must be created or not.
-  enabled: true
-  # -- creadentialPath defines the output file containing the container registry credentials.
-  credentialPath: .ignore.local-container-registry.yaml
-  # -- path to CA certificate.
-  caCrtPath: .ignore.ca.crt
-  # -- namespace where the local container registry will be deployed.
-  namespace: local-container-registry
+  # Unit tests
+  - name: unit
+    runner: go://test-runner-go
+
+  # Integration tests (requires test environment)
+  - name: integration
+    testenv: alias://testenv-integration
+    runner: go://test-runner-go
+
+  # E2E tests (requires test environment)
+  - name: e2e
+    testenv: go://kindenv
+    runner: alias://e2e-test
 
 # ----------------------------------------------------------------------
 generateOpenAPI:
@@ -91,3 +84,150 @@ generateOpenAPI:
       server:
         enabled: true
         packageName: transformerserver
+
+# ----------------------------------------------------------------------
+# -- build defines the artifacts to build
+build:
+  # Convenience target to run all code generation in sequence
+  - name: generate-all
+    src: .
+    engine: alias://generate-all
+
+  # Code quality
+  - name: format
+    src: .
+    engine: go://format-go
+
+  # Binaries (require generation to be complete)
+  - name: shaper-api-binary
+    src: ./cmd/shaper-api
+    dest: ./build/bin
+    engine: go://build-go
+    config:
+      outputName: shaper-api
+      ldflags: "-X main.BuildTimestamp={{.Timestamp}} -X main.CommitSHA={{.CommitSHA}} -X main.Version={{.Version}}"
+      env:
+        CGO_ENABLED: "0"
+
+  - name: shaper-controller-binary
+    src: ./cmd/shaper-controller
+    dest: ./build/bin
+    engine: go://build-go
+    config:
+      outputName: shaper-controller
+      ldflags: "-X main.BuildTimestamp={{.Timestamp}} -X main.CommitSHA={{.CommitSHA}} -X main.Version={{.Version}}"
+      env:
+        CGO_ENABLED: "0"
+
+  # Note: shaper-e2e requires CGO and libvirt-dev to build
+  # If forge build fails, use: CGO_ENABLED=1 go build -o build/bin/shaper-e2e ./cmd/shaper-e2e
+  - name: shaper-e2e-binary
+    src: ./cmd/shaper-e2e
+    dest: ./build/bin
+    engine: go://build-go
+    config:
+      outputName: shaper-e2e
+      ldflags: "-X main.BuildTimestamp={{.Timestamp}} -X main.CommitSHA={{.CommitSHA}} -X main.Version={{.Version}}"
+      env:
+        CGO_ENABLED: "1"
+
+  - name: shaper-tftp-binary
+    src: ./cmd/shaper-tftp
+    dest: ./build/bin
+    engine: go://build-go
+    config:
+      outputName: shaper-tftp
+      ldflags: "-X main.BuildTimestamp={{.Timestamp}} -X main.CommitSHA={{.CommitSHA}} -X main.Version={{.Version}}"
+      env:
+        CGO_ENABLED: "0"
+
+  - name: shaper-webhook-binary
+    src: ./cmd/shaper-webhook
+    dest: ./build/bin
+    engine: go://build-go
+    config:
+      outputName: shaper-webhook
+      ldflags: "-X main.BuildTimestamp={{.Timestamp}} -X main.CommitSHA={{.CommitSHA}} -X main.Version={{.Version}}"
+      env:
+        CGO_ENABLED: "0"
+
+  # Containers (require binaries to be built)
+  - name: shaper-api-container
+    src: ./containers/shaper-api/Containerfile
+    engine: go://build-container
+    config:
+      tags: ["shaper-api:latest"]
+
+  - name: shaper-webhook-container
+    src: ./containers/shaper-webhook/Containerfile
+    engine: go://build-container
+    config:
+      tags: ["shaper-webhook:latest"]
+
+# ----------------------------------------------------------------------
+# -- engines defines reusable build engines with custom configurations
+engines:
+  # Module management
+  - alias: go-mod-tidy
+    type: builder
+    builder:
+      - engine: go://generic-builder
+        spec:
+          command: "go"
+          args: ["mod", "tidy"]
+
+  - alias: generate-all
+    type: builder
+    builder:
+      - engine: go://generic-builder
+        spec:
+          command: "go"
+          args: ["mod", "tidy"]
+      - engine: go://generic-builder
+        spec:
+          command: "go"
+          args: ["run", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0", "object:headerFile=./hack/boilerplate.go.txt", "paths=./cmd/...;./internal/...;./pkg/cloudinit/...;./pkg/constants/...;./pkg/execcontext/...;./pkg/generated/...;./pkg/network/...;./pkg/v1alpha1/..."]
+      - engine: go://generic-builder
+        spec:
+          command: "go"
+          args: ["run", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0", "paths=./cmd/...;./internal/...;./pkg/cloudinit/...;./pkg/constants/...;./pkg/execcontext/...;./pkg/generated/...;./pkg/network/...;./pkg/v1alpha1/...", "crd:generateEmbeddedObjectMeta=true", "output:crd:artifacts:config=charts/shaper-crds/templates/crds"]
+      - engine: go://generic-builder
+        spec:
+          command: "go"
+          args: ["run", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0", "paths=./cmd/...;./internal/...;./pkg/cloudinit/...;./pkg/constants/...;./pkg/execcontext/...;./pkg/generated/...;./pkg/network/...;./pkg/v1alpha1/...", "rbac:roleName=shaper", "output:rbac:dir=charts/shaper/templates/rbac"]
+      - engine: go://generic-builder
+        spec:
+          command: "go"
+          args: ["run", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0", "paths=./cmd/...;./internal/...;./pkg/cloudinit/...;./pkg/constants/...;./pkg/execcontext/...;./pkg/generated/...;./pkg/network/...;./pkg/v1alpha1/...", "rbac:roleName=shaper-webhook", "webhook", "output:rbac:dir=charts/shaper-webhooks/templates", "output:webhook:dir=charts/shaper-webhooks/templates"]
+      - engine: go://generic-builder
+        spec:
+          command: "go"
+          args: ["generate", "./..."]
+      - engine: go://generic-builder
+        spec:
+          command: "rm"
+          args: ["-rf", "./internal/util/mocks"]
+      - engine: go://generate-mocks
+
+  - alias: testenv-integration
+    type: testenv
+    testenv:
+      - engine: go://testenv-kind
+      - engine: go://testenv-lcr
+        spec:
+          # -- autoPushImages defines whether to automatically push images from artifact store on setup.
+          autoPushImages: true
+          # -- enabled defines whether the local container registry must be created or not.
+          enabled: true
+      - engine: go://testenv-helm-install
+        spec:
+          charts: []
+
+  - alias: e2e-test
+    type: test-runner
+    testRunner:
+      - engine: go://generic-test-runner
+        spec:
+          command: "./test/e2e/main.sh"
+          args: ["full-test"]
+

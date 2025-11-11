@@ -15,3 +15,15 @@ limitations under the License.
 */
 
 package main
+
+import (
+	"fmt"
+	"os"
+)
+
+// TODO: Implement TFTP server for initial chainloading
+// This is a placeholder implementation
+func main() {
+	fmt.Fprintln(os.Stderr, "shaper-tftp: not yet implemented")
+	os.Exit(1)
+}
