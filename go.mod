@@ -3,7 +3,7 @@ module github.com/alexandremahdhaoui/shaper
 go 1.24.1
 
 require (
-	github.com/alexandremahdhaoui/tooling v0.1.4
+	github.com/alexandremahdhaoui/tooling v0.2.1
 	github.com/coreos/butane v0.25.1
 	github.com/getkin/kin-openapi v0.133.0
 	github.com/google/uuid v1.6.0

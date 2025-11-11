@@ -1,6 +1,6 @@
 github.com/RaveNoX/go-jsoncommentstrip v1.0.0/go.mod h1:78ihd09MekBnJnxpICcwzCMzGrKSKYe4AqU6PDYYpjk=
-github.com/alexandremahdhaoui/tooling v0.1.4 h1:9M6iC9Y0B+x3n2dUUPpIqIblonMTcC0TYj0FzbwLWMs=
-github.com/alexandremahdhaoui/tooling v0.1.4/go.mod h1:GEUwT0QqKs0xxZxXa+kvwwLrfsNgy7GBpckJTCUvrug=
+github.com/alexandremahdhaoui/tooling v0.2.1 h1:u4kcImf7O6W4IHIsF0MH0oIMUI8puqjoxL7nnJeZ3v0=
+github.com/alexandremahdhaoui/tooling v0.2.1/go.mod h1:6cmeEYkkHuuAWjt3uT/5qK4aOHDR3YGhS4BXb6UzgSA=
 github.com/apapsch/go-jsonmerge/v2 v2.0.0 h1:axGnT1gRIfimI7gJifB699GoE/oq+F2MU7Dml6nw9rQ=
 github.com/apapsch/go-jsonmerge/v2 v2.0.0/go.mod h1:lvDnEdqiQrp0O42VQGgmlKpxL1AP2+08jFMw88y4klk=
 github.com/aws/aws-sdk-go-v2 v1.39.5 h1:e/SXuia3rkFtapghJROrydtQpfQaaUgd1cUvyO1mp2w=
