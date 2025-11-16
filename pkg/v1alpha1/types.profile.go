@@ -85,7 +85,10 @@ type ProfileSpec struct {
 }
 
 // ProfileStatus defines the observed state of Profile
-type ProfileStatus struct{}
+type ProfileStatus struct {
+	// ExposedAdditionalContent maps content names to their UUIDs for exposed content
+	ExposedAdditionalContent map[string]string `json:"exposedAdditionalContent,omitempty"`
+}
 
 //+kubebuilder:object:root=true
 

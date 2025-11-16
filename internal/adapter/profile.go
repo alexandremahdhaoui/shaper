@@ -138,6 +138,8 @@ func (ipxev1a1) toProfile(input *v1alpha1.Profile) (types.Profile, error) {
 	}
 
 	out := types.Profile{
+		Name:               input.Name,
+		Namespace:          input.Namespace,
 		IPXETemplate:       input.Spec.IPXETemplate,
 		AdditionalContent:  make(map[string]types.Content),
 		ContentIDToNameMap: idNameMap,

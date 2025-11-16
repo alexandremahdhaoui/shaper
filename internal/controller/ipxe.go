@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"text/template"
 
 	"github.com/alexandremahdhaoui/shaper/internal/adapter"
@@ -79,6 +80,7 @@ func (i *ipxe) FindProfileAndRender(
 	selectors types.IPXESelectors,
 ) ([]byte, error) {
 	assignment, err := i.assignment.FindBySelectors(ctx, selectors)
+	matchedBy := "uuid"
 	if errors.Is(err, adapter.ErrAssignmentNotFound) {
 		// fallback to default profile
 		defaultAssignment, defaultErr := i.assignment.FindDefaultByBuildarch(
@@ -100,14 +102,30 @@ func (i *ipxe) FindProfileAndRender(
 		}
 
 		assignment = defaultAssignment
+		matchedBy = "default"
 	} else if err != nil {
 		return nil, errors.Join(err, errSelectingAssignment, ErrIPXEFindProfileAndRender)
 	}
+
+	// Log assignment selection
+	slog.InfoContext(ctx, "assignment_selected",
+		"assignment_name", assignment.Name,
+		"assignment_namespace", assignment.Namespace,
+		"subject_selectors", assignment.SubjectSelectors,
+		"matched_by", matchedBy,
+	)
 
 	p, err := i.profile.Get(ctx, assignment.ProfileName)
 	if err != nil {
 		return nil, errors.Join(err, ErrIPXEFindProfileAndRender)
 	}
+
+	// Log profile match
+	slog.InfoContext(ctx, "profile_matched",
+		"profile_name", p.Name,
+		"profile_namespace", p.Namespace,
+		"assignment", assignment.Name,
+	)
 
 	data, err := i.mux.ResolveAndTransformBatch(
 		ctx,

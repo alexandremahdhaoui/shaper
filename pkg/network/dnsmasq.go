@@ -346,10 +346,8 @@ func (m *DnsmasqManager) Delete(ctx context.Context, id string) error {
 	}
 
 	// Stop the process
-	if err := entry.process.Stop(); err != nil {
-		// Log error but continue with cleanup
-		// The process might already be stopped
-	}
+	// Log error but continue with cleanup - the process might already be stopped
+	_ = entry.process.Stop()
 
 	// Clean up files
 	if entry.process.pidFile != "" {

@@ -96,7 +96,7 @@ func ExecuteIPXEBootTest(config IPXETestConfig) (*IPXETestResult, error) {
 		result.Errors = append(result.Errors, fmt.Errorf("failed to create VMM: %v", err))
 		return result, flaterrors.Join(result.Errors...)
 	}
-	defer vmmConn.Close()
+	defer func() { _ = vmmConn.Close() }()
 
 	// Create minimal cloud-init for the VM (empty user-data)
 	userData := cloudinit.UserData{

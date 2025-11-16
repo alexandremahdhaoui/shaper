@@ -25,7 +25,13 @@ import (
 	"time"
 
 	"github.com/alexandremahdhaoui/shaper/internal/util/httputil"
+	"github.com/alexandremahdhaoui/shaper/pkg/v1alpha1"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/dynamic"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	ctrl "sigs.k8s.io/controller-runtime"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/alexandremahdhaoui/shaper/pkg/generated/shaperserver"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -44,10 +50,16 @@ const (
 )
 
 var (
-	Version        = "dev" //nolint:gochecknoglobals // set by ldflags
-	CommitSHA      = "n/a" //nolint:gochecknoglobals // set by ldflags
-	BuildTimestamp = "n/a" //nolint:gochecknoglobals // set by ldflags
+	scheme         = runtime.NewScheme() //nolint:gochecknoglobals // required for controller-runtime
+	Version        = "dev"               //nolint:gochecknoglobals // set by ldflags
+	CommitSHA      = "n/a"               //nolint:gochecknoglobals // set by ldflags
+	BuildTimestamp = "n/a"               //nolint:gochecknoglobals // set by ldflags
 )
+
+func init() {
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(v1alpha1.AddToScheme(scheme))
+}
 
 // Config is used to configure the application.
 //
@@ -66,6 +78,16 @@ type Config struct {
 	//
 	// It can be set to "in-cluster" to use the in-cluster config.
 	KubeconfigPath string `json:"kubeconfigPath"`
+
+	// Controller-runtime Manager options
+
+	// LeaderElection enables or disables leader election for the controller-runtime manager.
+	// Defaults to false. Not currently needed for shaper-api (read-only), but available for future HA.
+	LeaderElection bool `json:"leaderElection,omitempty"`
+
+	// LeaderElectionID is the name used for leader election.
+	// Only used if LeaderElection is true.
+	LeaderElectionID string `json:"leaderElectionID,omitempty"`
 
 	// ProbesServer is the configuration for the probes server.
 	ProbesServer struct {
@@ -135,12 +157,27 @@ func main() {
 		gs.Shutdown(1)
 	}
 
-	cl, err := k8s.NewKubeClient(restConfig)
+	// Create controller-runtime Manager for automatic caching
+	// Metrics and health probes are disabled because we use custom servers
+	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
+		Scheme: scheme,
+		Metrics: metricsserver.Options{
+			BindAddress: "0", // Disable built-in metrics server (we have custom)
+		},
+		HealthProbeBindAddress: "", // Disable built-in health probes (we have custom)
+		LeaderElection:         config.LeaderElection,
+		LeaderElectionID:       config.LeaderElectionID,
+		// Cache configuration will be added in Task 6
+	})
 	if err != nil {
-		slog.ErrorContext(ctx, "creating kube client", "error", err.Error())
+		slog.ErrorContext(ctx, "creating controller-runtime manager", "error", err.Error())
 		gs.Shutdown(1)
 	}
 
+	// Get cached client from manager for adapters
+	cl := mgr.GetClient()
+
+	// Dynamic client is still needed for ObjectRefResolver (dynamic resource access)
 	dynCl, err := dynamic.NewForConfig(restConfig)
 	if err != nil {
 		slog.ErrorContext(ctx, "creating dynamic client", "error", err.Error())

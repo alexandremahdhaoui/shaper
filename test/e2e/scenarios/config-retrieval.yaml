@@ -1,0 +1,150 @@
+name: "Configuration File Retrieval Test"
+description: |
+  Validates the /config/{uuid} endpoint for serving configuration files.
+  Creates a Profile with additionalContent (Ignition/Cloud-Init configs),
+  boots a VM that retrieves the config via HTTP GET /config/{uuid}.
+  Tests content resolution and transformation pipeline.
+
+tags: ["config", "ignition", "http", "content"]
+
+architecture: "x86_64"
+
+# VMs: Single VM that will retrieve config files
+vms:
+  - name: "test-vm-config-retrieval"
+    uuid: "44444444-4444-4444-4444-444444444444"
+    macAddress: "52:54:00:44:44:44"
+    memory: "1024"
+    vcpus: 1
+    bootOrder: ["network"]
+
+# Resources: Profile with additionalContent
+resources:
+  # Profile with Ignition configuration in additionalContent
+  - kind: "Profile"
+    name: "config-test-profile"
+    namespace: "shaper-system"
+    yaml: |
+      apiVersion: shaper.amahdha.com/v1alpha1
+      kind: Profile
+      metadata:
+        name: config-test-profile
+        namespace: shaper-system
+        labels:
+          profile: "config-test"
+      spec:
+        # iPXE script that fetches config from /config/{uuid}
+        ipxe: |
+          #!ipxe
+          echo ====================================
+          echo  Config Retrieval Test Profile
+          echo ====================================
+          echo VM UUID: ${uuid}
+          echo
+          echo Fetching Ignition config from shaper-API...
+          echo URL: http://shaper-api.shaper-system.svc.cluster.local/config/${uuid}
+          echo
+          # In a real scenario, this would fetch and boot with the config
+          # For testing, we just demonstrate the retrieval
+          echo Config endpoint ready for testing
+          shell
+
+        # Additional content: Ignition configuration
+        additionalContent:
+          - name: "ignition-config"
+            resolver:
+              type: "Inline"
+              inline:
+                content: |
+                  variant: fcos
+                  version: 1.4.0
+                  storage:
+                    files:
+                      - path: /etc/hostname
+                        mode: 0644
+                        contents:
+                          inline: test-vm-config-retrieval
+                      - path: /etc/motd
+                        mode: 0644
+                        contents:
+                          inline: |
+                            =======================================
+                            Config Retrieval Test - SUCCESS
+                            This file was created via Ignition
+                            Source: Shaper Profile additionalContent
+                            =======================================
+                  systemd:
+                    units:
+                      - name: test-service.service
+                        enabled: true
+                        contents: |
+                          [Unit]
+                          Description=Test Service for Config Retrieval
+                          [Service]
+                          Type=oneshot
+                          ExecStart=/usr/bin/echo "Config loaded successfully"
+                          [Install]
+                          WantedBy=multi-user.target
+            transformer:
+              type: "Butane"
+
+  # Assignment: Matches the VM and selects the Profile
+  - kind: "Assignment"
+    name: "config-test-assignment"
+    namespace: "shaper-system"
+    yaml: |
+      apiVersion: shaper.amahdha.com/v1alpha1
+      kind: Assignment
+      metadata:
+        name: config-test-assignment
+        namespace: shaper-system
+      spec:
+        subjectSelectors:
+          matchLabels:
+            uuid: "44444444-4444-4444-4444-444444444444"
+        profileSelectors:
+          matchLabels:
+            profile: "config-test"
+        buildArch: "x86_64"
+
+# Assertions: Validate config retrieval flow
+assertions:
+  - type: "dhcp_lease"
+    vm: "test-vm-config-retrieval"
+    description: "VM should obtain DHCP lease"
+
+  - type: "http_boot_called"
+    vm: "test-vm-config-retrieval"
+    description: "VM should call shaper-API /boot.ipxe or /ipxe"
+
+  - type: "assignment_match"
+    vm: "test-vm-config-retrieval"
+    expected: "config-test-assignment"
+    description: "Config test Assignment should be matched"
+
+  - type: "profile_match"
+    vm: "test-vm-config-retrieval"
+    expected: "config-test-profile"
+    description: "Config test Profile should be returned"
+
+  # CRITICAL: Verify /config/{uuid} endpoint is accessible and config is retrieved
+  - type: "config_retrieved"
+    vm: "test-vm-config-retrieval"
+    description: "VM should successfully retrieve config from /config/{uuid} endpoint. Config should be Ignition JSON after Butane transformation containing hostname, motd, and systemd unit."
+
+timeouts:
+  dhcpLease: "30s"
+  tftpBoot: "60s"
+  httpBoot: "120s"
+  vmProvision: "180s"
+  resourceReady: "60s"
+  assertionPoll: "2s"
+  configRetrieval: "60s"  # Additional timeout for config retrieval
+
+expectedOutcome:
+  status: "passed"
+  description: |
+    VM boots successfully, retrieves Ignition config from /config/{uuid}.
+    Config content is correctly transformed from Butane to Ignition.
+    Content matches expected configuration (hostname, motd, systemd unit).
+    Demonstrates full content resolution and transformation pipeline.

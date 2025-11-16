@@ -67,7 +67,7 @@ type UserData struct {
 func (ud UserData) Render() (string, error) {
 	b, err := yaml.Marshal(ud)
 	if err != nil {
-		return "", fmt.Errorf("Cannot render cloud-config from UserData: %v", err)
+		return "", fmt.Errorf("cannot render cloud-config from UserData: %v", err)
 	}
 	return fmt.Sprintf("#cloud-config\n%s", string(b)), nil
 }
@@ -75,7 +75,7 @@ func (ud UserData) Render() (string, error) {
 func NewRSAKeyFromPrivateKeyFile(privateKeyPath string) (SSHKeys, error) {
 	privateKey, err := os.ReadFile(privateKeyPath)
 	if err != nil {
-		return SSHKeys{}, fmt.Errorf("Cannot read SSH private key at %s", privateKeyPath)
+		return SSHKeys{}, fmt.Errorf("cannot read SSH private key at %s", privateKeyPath)
 	}
 
 	// bit hacky

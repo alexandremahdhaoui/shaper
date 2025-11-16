@@ -457,8 +457,8 @@ func cmdList(artifactStoreDir string) {
 
 	// Create table
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tBridge\tKIND Cluster\tKubeconfig")
-	fmt.Fprintln(w, "--\t--\t--\t--")
+	_, _ = fmt.Fprintln(w, "ID\tBridge\tKIND Cluster\tKubeconfig")
+	_, _ = fmt.Fprintln(w, "--\t--\t--\t--")
 
 	for _, env := range envs {
 		bridge := env.BridgeName
@@ -473,7 +473,7 @@ func cmdList(artifactStoreDir string) {
 		if kubeconfig == "" {
 			kubeconfig = "(none)"
 		}
-		fmt.Fprintf(
+		_, _ = fmt.Fprintf(
 			w,
 			"%s\t%s\t%s\t%s\n",
 			env.ID,
@@ -483,7 +483,7 @@ func cmdList(artifactStoreDir string) {
 		)
 	}
 
-	w.Flush()
+	_ = w.Flush()
 }
 
 // cmdTest runs a one-shot test (create → run → delete)

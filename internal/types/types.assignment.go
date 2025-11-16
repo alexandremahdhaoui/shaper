@@ -20,6 +20,10 @@ package types
 type Assignment struct {
 	// Name is the name given to the Assignment resource itself.
 	Name string
+	// Namespace is the namespace of the Assignment resource.
+	Namespace string
 	// ProfileName is the name of the assigned profile.
 	ProfileName string
+	// SubjectSelectors contains the selectors used to match machines.
+	SubjectSelectors map[string][]string
 }

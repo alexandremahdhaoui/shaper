@@ -19,6 +19,7 @@ package server
 import (
 	"context"
 	"errors"
+	"log/slog"
 
 	"github.com/alexandremahdhaoui/shaper/internal/controller"
 	"github.com/alexandremahdhaoui/shaper/internal/types"
@@ -90,6 +91,14 @@ func (s *server) GetIPXEBySelectors(
 		Buildarch: string(request.Params.Buildarch),
 		UUID:      request.Params.Uuid,
 	}
+
+	// Log iPXE boot request
+	// Note: remote_addr not available in oapi-codegen generated handler signature
+	// Would require middleware to inject into context
+	slog.InfoContext(ctx, "ipxe_boot_request",
+		"uuid", selectors.UUID,
+		"buildarch", selectors.Buildarch,
+	)
 
 	// call controller
 	b, err := s.ipxe.FindProfileAndRender(ctx, selectors)

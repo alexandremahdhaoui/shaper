@@ -88,7 +88,7 @@ func (m *LibvirtNetworkManager) Create(ctx context.Context, config LibvirtNetwor
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrDefineNetwork, err)
 	}
-	defer network.Free()
+	defer func() { _ = network.Free() }()
 
 	// Start the network
 	if err := network.Create(); err != nil {
@@ -97,10 +97,8 @@ func (m *LibvirtNetworkManager) Create(ctx context.Context, config LibvirtNetwor
 		return fmt.Errorf("%w: %v", ErrStartNetwork, err)
 	}
 
-	// Set network to autostart
-	if err := network.SetAutostart(true); err != nil {
-		// Log but don't fail - autostart is not critical
-	}
+	// Set network to autostart (don't fail if this errors - autostart is not critical)
+	_ = network.SetAutostart(true)
 
 	return nil
 }
@@ -111,7 +109,7 @@ func (m *LibvirtNetworkManager) ensureNetworkActive(name string) error {
 	if err != nil {
 		return fmt.Errorf("failed to lookup network: %v", err)
 	}
-	defer network.Free()
+	defer func() { _ = network.Free() }()
 
 	active, err := network.IsActive()
 	if err != nil {
@@ -148,7 +146,7 @@ func (m *LibvirtNetworkManager) Get(ctx context.Context, name string) (*LibvirtN
 		// Some other error
 		return nil, fmt.Errorf("%w: %v", ErrCheckNetwork, err)
 	}
-	defer network.Free()
+	defer func() { _ = network.Free() }()
 
 	// Get active status
 	isActive, err := network.IsActive()
@@ -225,7 +223,7 @@ func (m *LibvirtNetworkManager) Delete(ctx context.Context, name string) error {
 		}
 		return fmt.Errorf("failed to lookup network: %v", err)
 	}
-	defer network.Free()
+	defer func() { _ = network.Free() }()
 
 	// Check if network is active
 	active, err := network.IsActive()

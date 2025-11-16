@@ -1,3 +1,5 @@
+//go:build unit
+
 /*
 Copyright 2024 Alexandre Mahdhaoui
 

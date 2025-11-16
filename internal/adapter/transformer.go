@@ -130,7 +130,7 @@ func (t *webhookTransformer) Transform(
 		return nil, errors.Join(err, ErrWebhookResolver, ErrResolverResolve)
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	out, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, errors.Join(err, ErrWebhookResolver, ErrResolverResolve)

@@ -21,25 +21,25 @@ artifactStorePath: .forge/artifact-store.yaml
 test:
   # -- verify-tags - verify all test files have build tags
   - name: verify-tags
-    runner: "go://test-runner-go-verify-tags"
+    runner: "go://go-lint-tags"
 
   # Linting
   - name: lint
-    runner: go://lint-go
+    runner: go://go-lint
 
   # Unit tests
   - name: unit
-    runner: go://test-runner-go
+    runner: go://go-test
 
   # Integration tests (requires test environment)
   - name: integration
     testenv: alias://testenv-integration
-    runner: go://test-runner-go
+    runner: go://go-test
 
   # E2E tests (requires test environment)
   - name: e2e
-    testenv: go://kindenv
-    runner: alias://e2e-test
+    testenv: alias://e2e-testenv
+    runner: alias://e2e-runner
 
 # ----------------------------------------------------------------------
 generateOpenAPI:
@@ -49,7 +49,7 @@ generateOpenAPI:
     # -- destinationDir is the default local directory where the generated packages will be written to.
     destinationDir: ./pkg/generated
     # -- engine that will generate the openapi configuration
-    engine: go://generate-openapi-go
+    engine: go://go-gen-openapi
 
   specs:
     # shaper
@@ -96,73 +96,66 @@ build:
   # Code quality
   - name: format
     src: .
-    engine: go://format-go
+    engine: go://go-format
 
   # Binaries (require generation to be complete)
-  - name: shaper-api-binary
+  - name: shaper-api
     src: ./cmd/shaper-api
     dest: ./build/bin
-    engine: go://build-go
-    config:
-      outputName: shaper-api
-      ldflags: "-X main.BuildTimestamp={{.Timestamp}} -X main.CommitSHA={{.CommitSHA}} -X main.Version={{.Version}}"
-      env:
-        CGO_ENABLED: "0"
+    engine: go://go-build
 
-  - name: shaper-controller-binary
+  - name: shaper-controller
     src: ./cmd/shaper-controller
     dest: ./build/bin
-    engine: go://build-go
-    config:
-      outputName: shaper-controller
-      ldflags: "-X main.BuildTimestamp={{.Timestamp}} -X main.CommitSHA={{.CommitSHA}} -X main.Version={{.Version}}"
-      env:
-        CGO_ENABLED: "0"
+    engine: go://go-build
 
-  # Note: shaper-e2e requires CGO and libvirt-dev to build
-  # If forge build fails, use: CGO_ENABLED=1 go build -o build/bin/shaper-e2e ./cmd/shaper-e2e
-  - name: shaper-e2e-binary
+  # Note: The binary needs -tags e2e because it imports pkg/test/e2e which has build tags
+  - name: shaper-e2e
     src: ./cmd/shaper-e2e
     dest: ./build/bin
-    engine: go://build-go
-    config:
-      outputName: shaper-e2e
-      ldflags: "-X main.BuildTimestamp={{.Timestamp}} -X main.CommitSHA={{.CommitSHA}} -X main.Version={{.Version}}"
+    engine: go://go-build
+    spec:
       env:
         CGO_ENABLED: "1"
 
-  - name: shaper-tftp-binary
+  - name: shaper-tftp
     src: ./cmd/shaper-tftp
     dest: ./build/bin
-    engine: go://build-go
-    config:
-      outputName: shaper-tftp
-      ldflags: "-X main.BuildTimestamp={{.Timestamp}} -X main.CommitSHA={{.CommitSHA}} -X main.Version={{.Version}}"
-      env:
-        CGO_ENABLED: "0"
+    engine: go://go-build
 
-  - name: shaper-webhook-binary
+  - name: shaper-webhook
     src: ./cmd/shaper-webhook
     dest: ./build/bin
-    engine: go://build-go
-    config:
-      outputName: shaper-webhook
-      ldflags: "-X main.BuildTimestamp={{.Timestamp}} -X main.CommitSHA={{.CommitSHA}} -X main.Version={{.Version}}"
+    engine: go://go-build
+
+  # E2E testenv subengine binary
+  - name: shaper-e2e-testenv
+    src: ./cmd/shaper-e2e-testenv
+    dest: ./build/bin
+    engine: go://go-build
+    spec:
       env:
-        CGO_ENABLED: "0"
+        CGO_ENABLED: "1"
+      args: ["-tags", "e2e"]
+
+  # E2E test runner binary
+  - name: shaper-e2e-runner
+    src: ./cmd/shaper-e2e-runner
+    dest: ./build/bin
+    engine: go://go-build
+    spec:
+      env:
+        CGO_ENABLED: "1"
+      args: ["-tags", "e2e"]
 
   # Containers (require binaries to be built)
   - name: shaper-api-container
     src: ./containers/shaper-api/Containerfile
-    engine: go://build-container
-    config:
-      tags: ["shaper-api:latest"]
+    engine: go://container-build
 
   - name: shaper-webhook-container
     src: ./containers/shaper-webhook/Containerfile
-    engine: go://build-container
-    config:
-      tags: ["shaper-webhook:latest"]
+    engine: go://container-build
 
 # ----------------------------------------------------------------------
 # -- engines defines reusable build engines with custom configurations
@@ -186,19 +179,19 @@ engines:
       - engine: go://generic-builder
         spec:
           command: "go"
-          args: ["run", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0", "object:headerFile=./hack/boilerplate.go.txt", "paths=./cmd/...;./internal/...;./pkg/cloudinit/...;./pkg/constants/...;./pkg/execcontext/...;./pkg/generated/...;./pkg/network/...;./pkg/v1alpha1/..."]
+          args: ["run", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0", "object:headerFile=./hack/boilerplate.go.txt", "paths=./cmd/shaper-api/...;./cmd/shaper-controller/...;./cmd/shaper-tftp/...;./cmd/shaper-webhook/...;./internal/...;./pkg/cloudinit/...;./pkg/constants/...;./pkg/execcontext/...;./pkg/generated/...;./pkg/network/...;./pkg/vmm/...;./pkg/v1alpha1/..."]
       - engine: go://generic-builder
         spec:
           command: "go"
-          args: ["run", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0", "paths=./cmd/...;./internal/...;./pkg/cloudinit/...;./pkg/constants/...;./pkg/execcontext/...;./pkg/generated/...;./pkg/network/...;./pkg/v1alpha1/...", "crd:generateEmbeddedObjectMeta=true", "output:crd:artifacts:config=charts/shaper-crds/templates/crds"]
+          args: ["run", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0", "paths=./cmd/shaper-api/...;./cmd/shaper-controller/...;./cmd/shaper-tftp/...;./cmd/shaper-webhook/...;./internal/...;./pkg/cloudinit/...;./pkg/constants/...;./pkg/execcontext/...;./pkg/generated/...;./pkg/network/...;./pkg/vmm/...;./pkg/v1alpha1/...", "crd:generateEmbeddedObjectMeta=true", "output:crd:artifacts:config=charts/shaper-crds/templates/crds"]
       - engine: go://generic-builder
         spec:
           command: "go"
-          args: ["run", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0", "paths=./cmd/...;./internal/...;./pkg/cloudinit/...;./pkg/constants/...;./pkg/execcontext/...;./pkg/generated/...;./pkg/network/...;./pkg/v1alpha1/...", "rbac:roleName=shaper", "output:rbac:dir=charts/shaper/templates/rbac"]
+          args: ["run", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0", "paths=./cmd/shaper-api/...;./cmd/shaper-controller/...;./cmd/shaper-tftp/...;./cmd/shaper-webhook/...;./internal/...;./pkg/cloudinit/...;./pkg/constants/...;./pkg/execcontext/...;./pkg/generated/...;./pkg/network/...;./pkg/vmm/...;./pkg/v1alpha1/...", "rbac:roleName=shaper", "output:rbac:dir=charts/shaper/templates/rbac"]
       - engine: go://generic-builder
         spec:
           command: "go"
-          args: ["run", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0", "paths=./cmd/...;./internal/...;./pkg/cloudinit/...;./pkg/constants/...;./pkg/execcontext/...;./pkg/generated/...;./pkg/network/...;./pkg/v1alpha1/...", "rbac:roleName=shaper-webhook", "webhook", "output:rbac:dir=charts/shaper-webhooks/templates", "output:webhook:dir=charts/shaper-webhooks/templates"]
+          args: ["run", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0", "paths=./cmd/shaper-api/...;./cmd/shaper-controller/...;./cmd/shaper-tftp/...;./cmd/shaper-webhook/...;./internal/...;./pkg/cloudinit/...;./pkg/constants/...;./pkg/execcontext/...;./pkg/generated/...;./pkg/network/...;./pkg/vmm/...;./pkg/v1alpha1/...", "rbac:roleName=shaper-webhook", "webhook", "output:rbac:dir=charts/shaper-webhooks/templates", "output:webhook:dir=charts/shaper-webhooks/templates"]
       - engine: go://generic-builder
         spec:
           command: "go"
@@ -207,7 +200,7 @@ engines:
         spec:
           command: "rm"
           args: ["-rf", "./internal/util/mocks"]
-      - engine: go://generate-mocks
+      - engine: go://go-gen-mocks
 
   - alias: testenv-integration
     type: testenv
@@ -230,4 +223,36 @@ engines:
         spec:
           command: "./test/e2e/main.sh"
           args: ["full-test"]
+          env:
+            CGO_ENABLED: "1"
+
+  # E2E test environment (orchestrates setup)
+  - alias: e2e-testenv
+    type: testenv
+    testenv:
+      - engine: go://testenv-kind
+      - engine: go://testenv-lcr
+        spec:
+          autoPushImages: true
+          enabled: true
+      - engine: go://testenv
+        subengines:
+          - name: shaper-e2e-testenv
+            create:
+              command: ./build/bin/shaper-e2e-testenv
+              args: ["create"]
+            delete:
+              command: ./build/bin/shaper-e2e-testenv
+              args: ["delete", "{{.ID}}"]
+
+  # E2E test runner (executes scenarios)
+  - alias: e2e-runner
+    type: test-runner
+    testRunner:
+      - engine: go://generic-test-runner
+        spec:
+          command: "./test/e2e/main.sh"
+          args: ["run-scenario"]
+          env:
+            CGO_ENABLED: "1"
 

@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"log/slog"
 
 	"github.com/alexandremahdhaoui/shaper/internal/adapter"
 	"github.com/alexandremahdhaoui/shaper/internal/types"
@@ -86,6 +87,24 @@ func (c *content) GetByID(
 	if err != nil {
 		return nil, errors.Join(err, ErrContentGetById)
 	}
+
+	// Determine content type from resolver kind
+	contentType := "unknown"
+	switch cont.ResolverKind {
+	case types.InlineResolverKind:
+		contentType = "inline"
+	case types.ObjectRefResolverKind:
+		contentType = "objectref"
+	case types.WebhookResolverKind:
+		contentType = "webhook"
+	}
+
+	// Log config retrieval
+	slog.InfoContext(ctx, "config_retrieved",
+		"config_uuid", contentID.String(),
+		"content_type", contentType,
+		"size_bytes", len(out),
+	)
 
 	return out, nil
 }

@@ -1,0 +1,8 @@
+{
+  "metricsBind": ":8080",
+  "healthBind": ":8081",
+  "leaderElectionID": "shaper-controller-leader",
+  "leaderElection": false,
+  "developmentMode": false,
+  "namespace": ""
+}

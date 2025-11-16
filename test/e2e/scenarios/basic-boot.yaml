@@ -1,0 +1,99 @@
+name: "Basic Single VM Boot Test"
+description: |
+  Validates basic PXE boot flow with a single VM.
+  VM should obtain DHCP lease, fetch boot files, and call shaper-API.
+  Uses default infrastructure and profile configuration.
+
+tags: ["basic", "smoke", "boot"]
+
+architecture: "x86_64"
+
+# VMs: Single test VM with minimal configuration
+vms:
+  - name: "test-vm-basic"
+    # UUID and MAC will be auto-generated
+    memory: "1024"  # 1GB RAM
+    vcpus: 1
+    bootOrder: ["network"]  # Network boot only
+
+# Resources: Create a default Profile
+resources:
+  - kind: "Profile"
+    name: "default-profile"
+    namespace: "shaper-system"
+    yaml: |
+      apiVersion: shaper.amahdha.com/v1alpha1
+      kind: Profile
+      metadata:
+        name: default-profile
+        namespace: shaper-system
+        labels:
+          profile: "default"
+      spec:
+        ipxe: |
+          #!ipxe
+          echo ====================================
+          echo  Shaper iPXE Boot - Default Profile
+          echo ====================================
+          echo VM: ${hostname}
+          echo UUID: ${uuid}
+          echo MAC: ${mac}
+          echo Build Arch: ${buildarch}
+          echo
+          echo Boot successful!
+          shell
+
+  # Default assignment (matches all VMs)
+  - kind: "Assignment"
+    name: "default-assignment"
+    namespace: "shaper-system"
+    yaml: |
+      apiVersion: shaper.amahdha.com/v1alpha1
+      kind: Assignment
+      metadata:
+        name: default-assignment
+        namespace: shaper-system
+      spec:
+        # No subject selectors - matches everything
+        profileSelectors:
+          matchLabels:
+            profile: "default"
+        isDefault: true
+        buildArch: "x86_64"
+
+# Assertions: Validate basic boot flow
+assertions:
+  # Verify DHCP lease was obtained
+  - type: "dhcp_lease"
+    vm: "test-vm-basic"
+    description: "VM should obtain DHCP lease from dnsmasq"
+
+  # Verify TFTP boot file was fetched
+  - type: "tftp_boot"
+    vm: "test-vm-basic"
+    description: "VM should fetch boot file via TFTP"
+
+  # Verify HTTP boot endpoint was called
+  - type: "http_boot_called"
+    vm: "test-vm-basic"
+    description: "VM should call shaper-API /boot.ipxe or /ipxe endpoint"
+
+  # Verify correct Profile was returned
+  - type: "profile_match"
+    vm: "test-vm-basic"
+    expected: "default-profile"
+    description: "shaper-API should return default-profile"
+
+# Timeouts: Use defaults
+timeouts:
+  dhcpLease: "30s"
+  tftpBoot: "60s"
+  httpBoot: "120s"
+  vmProvision: "180s"
+  resourceReady: "60s"
+  assertionPoll: "2s"
+
+# Expected outcome
+expectedOutcome:
+  status: "passed"
+  description: "VM boots successfully and obtains default profile"

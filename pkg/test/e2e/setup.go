@@ -133,7 +133,7 @@ func SetupShaperTestEnvironment(config ShaperSetupConfig) (*ShaperTestEnvironmen
 	if err != nil {
 		return nil, flaterrors.Join(err, fmt.Errorf("failed to create VMM"))
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	libvirtMgr := network.NewLibvirtNetworkManager(conn.GetConnection())
 	libvirtNetConfig := network.LibvirtNetworkConfig{
@@ -256,7 +256,7 @@ func TeardownShaperTestEnvironment(env *ShaperTestEnvironment) error {
 	if len(env.ClientVMs) > 0 {
 		vmmConn, err := vmm.NewVMM()
 		if err == nil {
-			defer vmmConn.Close()
+			defer func() { _ = vmmConn.Close() }()
 			for _, vm := range env.ClientVMs {
 				if err := vmmConn.DestroyVM(execCtx, vm.Name); err != nil {
 					errors = append(errors, fmt.Errorf("failed to destroy VM %s: %v", vm.Name, err))
@@ -269,7 +269,7 @@ func TeardownShaperTestEnvironment(env *ShaperTestEnvironment) error {
 	if env.LibvirtNetwork != "" {
 		vmmConn, err := vmm.NewVMM()
 		if err == nil {
-			defer vmmConn.Close()
+			defer func() { _ = vmmConn.Close() }()
 			libvirtMgr := network.NewLibvirtNetworkManager(vmmConn.GetConnection())
 			if err := libvirtMgr.Delete(ctx, env.LibvirtNetwork); err != nil {
 				errors = append(errors, fmt.Errorf("failed to delete libvirt network: %v", err))

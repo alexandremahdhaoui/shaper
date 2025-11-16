@@ -168,7 +168,7 @@ func (v *VMM) CreateVM(cfg VMConfig) (*VMMetadata, error) {
 	if err != nil {
 		return nil, flaterrors.Join(err, errGenerateCloudInitISO)
 	}
-	defer os.Remove(cloudInitISOPath)
+	defer func() { _ = os.Remove(cloudInitISOPath) }()
 
 	// -- Create overlay vm image
 	vmDiskPath := filepath.Join(tempDir, fmt.Sprintf("%s.qcow2", cfg.Name))
@@ -355,7 +355,7 @@ func (v *VMM) CreateVM(cfg VMConfig) (*VMMetadata, error) {
 	}
 
 	if err := dom.Create(); err != nil {
-		dom.Free()
+		_ = dom.Free()
 		return nil, flaterrors.Join(err, errCreateDomain)
 	}
 
@@ -611,7 +611,7 @@ func (v *VMM) DestroyVM(ctx execcontext.Context, vmName string) error {
 		)
 	}
 
-	dom.Free()
+	_ = dom.Free()
 	delete(v.domains, vmName)
 	return nil
 }
@@ -626,7 +626,7 @@ func generateCloudInitISO(vmName, userData, tempDir string) (string, error) {
 	if err := os.MkdirAll(cloudInitDir, 0o755); err != nil {
 		return "", flaterrors.Join(err, errCreateCloudInitDir)
 	}
-	defer os.RemoveAll(cloudInitDir)
+	defer func() { _ = os.RemoveAll(cloudInitDir) }()
 
 	userFile := filepath.Join(cloudInitDir, "user-data")
 	if err := os.WriteFile(userFile, []byte(userData), 0o644); err != nil {
@@ -711,7 +711,7 @@ func (v *VMM) GetConsoleOutput(vmName string) (string, error) {
 	if err != nil {
 		return "", flaterrors.Join(err, fmt.Errorf("vmName=%s", vmName), errCreateStream)
 	}
-	defer stream.Free()
+	defer func() { _ = stream.Free() }()
 
 	err = dom.OpenConsole("", stream, 0)
 	if err != nil {

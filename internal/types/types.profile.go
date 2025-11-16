@@ -25,6 +25,10 @@ import (
 
 // Profile is a struct that holds the iPXE template and additional content.
 type Profile struct {
+	// Name is the name of the Profile resource.
+	Name string
+	// Namespace is the namespace of the Profile resource.
+	Namespace string
 	// IPXETemplate is the iPXE template.
 	IPXETemplate string
 

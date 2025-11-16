@@ -80,9 +80,26 @@ func (a *assignment) FindDefaultByBuildarch(ctx context.Context, buildarch strin
 		return types.Assignment{}, errors.Join(ErrAssignmentNotFound, errAssignmentFindDefault)
 	}
 
+	var subjectSelectors map[string][]string
+	if len(list.Items[0].Spec.SubjectSelectors.BuildarchList) > 0 || len(list.Items[0].Spec.SubjectSelectors.UUIDList) > 0 {
+		subjectSelectors = make(map[string][]string)
+		if len(list.Items[0].Spec.SubjectSelectors.BuildarchList) > 0 {
+			buildarchStrings := make([]string, len(list.Items[0].Spec.SubjectSelectors.BuildarchList))
+			for i, ba := range list.Items[0].Spec.SubjectSelectors.BuildarchList {
+				buildarchStrings[i] = string(ba)
+			}
+			subjectSelectors["buildarch"] = buildarchStrings
+		}
+		if len(list.Items[0].Spec.SubjectSelectors.UUIDList) > 0 {
+			subjectSelectors["uuid"] = list.Items[0].Spec.SubjectSelectors.UUIDList
+		}
+	}
+
 	return types.Assignment{
-		Name:        list.Items[0].Name,
-		ProfileName: list.Items[0].Spec.ProfileName,
+		Name:             list.Items[0].Name,
+		Namespace:        list.Items[0].Namespace,
+		ProfileName:      list.Items[0].Spec.ProfileName,
+		SubjectSelectors: subjectSelectors,
 	}, nil
 }
 
@@ -102,9 +119,26 @@ func (a *assignment) FindBySelectors(ctx context.Context, selectors types.IPXESe
 		return types.Assignment{}, errors.Join(ErrAssignmentNotFound, errAssignmentFindBySelectors)
 	}
 
+	var subjectSelectors map[string][]string
+	if len(list.Items[0].Spec.SubjectSelectors.BuildarchList) > 0 || len(list.Items[0].Spec.SubjectSelectors.UUIDList) > 0 {
+		subjectSelectors = make(map[string][]string)
+		if len(list.Items[0].Spec.SubjectSelectors.BuildarchList) > 0 {
+			buildarchStrings := make([]string, len(list.Items[0].Spec.SubjectSelectors.BuildarchList))
+			for i, ba := range list.Items[0].Spec.SubjectSelectors.BuildarchList {
+				buildarchStrings[i] = string(ba)
+			}
+			subjectSelectors["buildarch"] = buildarchStrings
+		}
+		if len(list.Items[0].Spec.SubjectSelectors.UUIDList) > 0 {
+			subjectSelectors["uuid"] = list.Items[0].Spec.SubjectSelectors.UUIDList
+		}
+	}
+
 	return types.Assignment{
-		Name:        list.Items[0].Name,
-		ProfileName: list.Items[0].Spec.ProfileName,
+		Name:             list.Items[0].Name,
+		Namespace:        list.Items[0].Namespace,
+		ProfileName:      list.Items[0].Spec.ProfileName,
+		SubjectSelectors: subjectSelectors,
 	}, nil
 }
 

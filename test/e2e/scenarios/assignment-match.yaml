@@ -1,0 +1,99 @@
+name: "Assignment Selector Matching Test"
+description: |
+  Validates that Assignments correctly select VMs based on subject selectors.
+  Creates a VM with known UUID and an Assignment that matches it.
+  Verifies the Assignment is selected and correct Profile is returned.
+
+tags: ["assignment", "selectors", "matching"]
+
+architecture: "x86_64"
+
+# VMs: Single VM with explicit UUID
+vms:
+  - name: "test-vm-uuid-match"
+    uuid: "550e8400-e29b-41d4-a716-446655440000"  # Explicit UUID for matching
+    macAddress: "52:54:00:12:34:56"  # Explicit MAC
+    memory: "1024"
+    vcpus: 1
+    bootOrder: ["network"]
+
+# Resources: Create Assignment that matches specific UUID and corresponding Profile
+resources:
+  # Custom Profile for UUID-matched VM
+  - kind: "Profile"
+    name: "custom-uuid-profile"
+    namespace: "shaper-system"
+    yaml: |
+      apiVersion: shaper.amahdha.com/v1alpha1
+      kind: Profile
+      metadata:
+        name: custom-uuid-profile
+        namespace: shaper-system
+        labels:
+          profile: "custom-uuid"
+      spec:
+        ipxe: |
+          #!ipxe
+          echo ====================================
+          echo  Custom UUID Profile
+          echo ====================================
+          echo This profile matches specific UUID
+          echo UUID: ${uuid}
+          echo Expected: 550e8400-e29b-41d4-a716-446655440000
+          echo
+          echo Assignment selector matching: SUCCESS
+          shell
+
+  # Assignment that matches the specific UUID
+  - kind: "Assignment"
+    name: "uuid-specific-assignment"
+    namespace: "shaper-system"
+    yaml: |
+      apiVersion: shaper.amahdha.com/v1alpha1
+      kind: Assignment
+      metadata:
+        name: uuid-specific-assignment
+        namespace: shaper-system
+      spec:
+        subjectSelectors:
+          matchLabels:
+            # This will match VM with this UUID
+            uuid: "550e8400-e29b-41d4-a716-446655440000"
+        profileSelectors:
+          matchLabels:
+            profile: "custom-uuid"
+        buildArch: "x86_64"
+
+# Assertions: Validate selector matching
+assertions:
+  - type: "dhcp_lease"
+    vm: "test-vm-uuid-match"
+    description: "VM should obtain DHCP lease"
+
+  - type: "http_boot_called"
+    vm: "test-vm-uuid-match"
+    description: "VM should call shaper-API"
+
+  # CRITICAL: Verify the UUID-specific assignment was matched
+  - type: "assignment_match"
+    vm: "test-vm-uuid-match"
+    expected: "uuid-specific-assignment"
+    description: "Assignment with UUID selector should be matched"
+
+  # CRITICAL: Verify the correct profile was returned
+  - type: "profile_match"
+    vm: "test-vm-uuid-match"
+    expected: "custom-uuid-profile"
+    description: "Custom UUID profile should be returned"
+
+timeouts:
+  dhcpLease: "30s"
+  tftpBoot: "60s"
+  httpBoot: "120s"
+  vmProvision: "180s"
+  resourceReady: "60s"
+  assertionPoll: "2s"
+
+expectedOutcome:
+  status: "passed"
+  description: "VM matches UUID-specific Assignment and receives custom Profile"

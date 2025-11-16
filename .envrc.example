@@ -2,7 +2,9 @@
 
 export KIND_BINARY="$(which kind)"
 export CONTAINER_ENGINE="$(which docker)"
+export CONTAINER_BUILD_ENGINE=docker
 export ELEVATED_PREPEND_CMD="sudo -E"
+export OAPI_CODEGEN_VERSION=v2.5.0
 
 # TODO: verify if config below is required.
 export IPXER_CONFIG_PATH=.tmp/e2e/config.yaml

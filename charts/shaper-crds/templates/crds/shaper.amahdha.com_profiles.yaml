@@ -309,6 +309,13 @@ spec:
             type: object
           status:
             description: ProfileStatus defines the observed state of Profile
+            properties:
+              exposedAdditionalContent:
+                additionalProperties:
+                  type: string
+                description: ExposedAdditionalContent maps content names to their
+                  UUIDs for exposed content
+                type: object
             type: object
         type: object
     served: true

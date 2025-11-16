@@ -29,3 +29,4 @@ build/*
 **/.ai/*
 tmp/*
 .forge
+/shaper-api

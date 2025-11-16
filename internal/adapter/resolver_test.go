@@ -29,6 +29,7 @@ import (
 
 	"github.com/alexandremahdhaoui/shaper/internal/adapter"
 	"github.com/alexandremahdhaoui/shaper/internal/types"
+	"github.com/alexandremahdhaoui/shaper/internal/util/certutil"
 	"github.com/alexandremahdhaoui/shaper/internal/util/fakes/resolverserverfake"
 	"github.com/alexandremahdhaoui/shaper/internal/util/httputil"
 	"github.com/alexandremahdhaoui/shaper/internal/util/testutil"
@@ -272,5 +273,127 @@ func TestWebhookResolver(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, expected, string(actual))
 		})
+	})
+
+	t.Run("mTLS_InvalidClientCert", func(t *testing.T) {
+		defer setup(t)()
+
+		// Extract addr from webhook URL
+		addr := strings.SplitN(content.WebhookConfig.URL, "/", 2)[0]
+
+		// Create a different CA and generate client cert from it
+		wrongCA, err := certutil.NewCA()
+		require.NoError(t, err)
+
+		wrongClientKey, wrongClientCert, err := wrongCA.NewCertifiedKeyPEM(addr)
+		require.NoError(t, err)
+
+		// Update mtlsObject with certificate from wrong CA
+		mtlsObject.SetUnstructuredContent(map[string]any{
+			"data": map[string]any{
+				"client.key": string(wrongClientKey),
+				"client.crt": string(wrongClientCert),
+				"ca.crt":     string(mock.CA.Cert()),
+			},
+		})
+
+		cl.PrependReactor("get", "YourSecret", func(_ k8stesting.Action) (bool, runtime.Object, error) {
+			return true, basicAuthObject, nil
+		})
+
+		cl.PrependReactor("get", "Secret", func(_ k8stesting.Action) (bool, runtime.Object, error) {
+			return true, mtlsObject, nil
+		})
+
+		// Resolver should fail with TLS error
+		_, err = resolver.Resolve(ctx, content, ipxeSelectors)
+		assert.Error(t, err, "Should fail with TLS error when client cert is from wrong CA")
+		assert.Contains(t, err.Error(), "tls", "Error should be TLS-related")
+	})
+
+	t.Run("mTLS_NoClientCert", func(t *testing.T) {
+		defer setup(t)()
+
+		// Provide empty client cert and key
+		mtlsObject.SetUnstructuredContent(map[string]any{
+			"data": map[string]any{
+				"client.key": "",
+				"client.crt": "",
+				"ca.crt":     string(mock.CA.Cert()),
+			},
+		})
+
+		cl.PrependReactor("get", "YourSecret", func(_ k8stesting.Action) (bool, runtime.Object, error) {
+			return true, basicAuthObject, nil
+		})
+
+		cl.PrependReactor("get", "Secret", func(_ k8stesting.Action) (bool, runtime.Object, error) {
+			return true, mtlsObject, nil
+		})
+
+		// Resolver should fail with TLS error when no client cert provided
+		_, err := resolver.Resolve(ctx, content, ipxeSelectors)
+		assert.Error(t, err, "Should fail when no client certificate provided")
+	})
+
+	t.Run("mTLS_InvalidServerCert", func(t *testing.T) {
+		defer setup(t)()
+
+		// Extract addr from webhook URL
+		addr := strings.SplitN(content.WebhookConfig.URL, "/", 2)[0]
+
+		// Create a different CA for validation
+		wrongCA, err := certutil.NewCA()
+		require.NoError(t, err)
+
+		// Use correct client cert but wrong CA for validation
+		clientKey, clientCert, err := mock.CA.NewCertifiedKeyPEM(addr)
+		require.NoError(t, err)
+
+		mtlsObject.SetUnstructuredContent(map[string]any{
+			"data": map[string]any{
+				"client.key": string(clientKey),
+				"client.crt": string(clientCert),
+				"ca.crt":     string(wrongCA.Cert()), // Wrong CA for server validation
+			},
+		})
+
+		cl.PrependReactor("get", "YourSecret", func(_ k8stesting.Action) (bool, runtime.Object, error) {
+			return true, basicAuthObject, nil
+		})
+
+		cl.PrependReactor("get", "Secret", func(_ k8stesting.Action) (bool, runtime.Object, error) {
+			return true, mtlsObject, nil
+		})
+
+		// Resolver should fail because server cert won't validate with wrong CA
+		_, err = resolver.Resolve(ctx, content, ipxeSelectors)
+		assert.Error(t, err, "Should fail when server cert cannot be validated")
+		assert.Contains(t, err.Error(), "certificate", "Error should be certificate-related")
+	})
+
+	t.Run("mTLS_MalformedClientCert", func(t *testing.T) {
+		defer setup(t)()
+
+		// Provide malformed client cert
+		mtlsObject.SetUnstructuredContent(map[string]any{
+			"data": map[string]any{
+				"client.key": "-----BEGIN PRIVATE KEY-----\ninvalid\n-----END PRIVATE KEY-----",
+				"client.crt": "-----BEGIN CERTIFICATE-----\ninvalid\n-----END CERTIFICATE-----",
+				"ca.crt":     string(mock.CA.Cert()),
+			},
+		})
+
+		cl.PrependReactor("get", "YourSecret", func(_ k8stesting.Action) (bool, runtime.Object, error) {
+			return true, basicAuthObject, nil
+		})
+
+		cl.PrependReactor("get", "Secret", func(_ k8stesting.Action) (bool, runtime.Object, error) {
+			return true, mtlsObject, nil
+		})
+
+		// Resolver should fail when trying to parse malformed cert
+		_, err := resolver.Resolve(ctx, content, ipxeSelectors)
+		assert.Error(t, err, "Should fail with malformed client certificate")
 	})
 }

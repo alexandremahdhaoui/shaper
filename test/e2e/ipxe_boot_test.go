@@ -1,5 +1,4 @@
 //go:build e2e
-// +build e2e
 
 package e2e_test
 
@@ -164,7 +163,9 @@ func testIPXEBootFlow(t *testing.T, env *e2e.ShaperTestEnvironment) {
 
 // TestIPXEBootFlow_WithProfile tests boot flow with actual Profile CRD
 func TestIPXEBootFlow_WithProfile(t *testing.T) {
-	t.Skip("Requires Profile CRD and shaper-API deployment - implement after base infrastructure test passes")
+	t.Skip(
+		"Requires Profile CRD and shaper-API deployment - implement after base infrastructure test passes",
+	)
 
 	// This test would:
 	// 1. Create a Profile CRD
@@ -175,7 +176,9 @@ func TestIPXEBootFlow_WithProfile(t *testing.T) {
 
 // TestIPXEBootFlow_MultipleProfiles tests with multiple profiles
 func TestIPXEBootFlow_MultipleProfiles(t *testing.T) {
-	t.Skip("Requires Profile CRD and shaper-API deployment - implement after base infrastructure test passes")
+	t.Skip(
+		"Requires Profile CRD and shaper-API deployment - implement after base infrastructure test passes",
+	)
 
 	// This test would:
 	// 1. Create multiple Profile CRDs
