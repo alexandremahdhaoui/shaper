@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/alexandremahdhaoui/shaper/pkg/execcontext"
@@ -330,16 +331,32 @@ func (m *InfrastructureManager) createKindCluster(ctx context.Context, state *In
 
 // deployShaper deploys shaper components to KIND cluster
 func (m *InfrastructureManager) deployShaper(ctx context.Context, state *InfrastructureState) error {
-	// Deploy shaper CRDs and components
-	// Find CRD paths (assuming standard project layout)
-	crdPaths := []string{
-		"charts/shaper-crds/templates/crds/",
+	// Find project root by walking upward from this source file
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		return fmt.Errorf("could not determine source file location")
 	}
 
+	// From pkg/test/e2e/infrastructure/manager.go, walk up to project root
+	projectRoot := filepath.Join(filepath.Dir(filename), "..", "..", "..", "..")
+
+	// Verify by checking for go.mod
+	gomodPath := filepath.Join(projectRoot, "go.mod")
+	if _, err := os.Stat(gomodPath); err != nil {
+		return fmt.Errorf("could not find project root (go.mod not found): %w", err)
+	}
+
+	// Construct absolute CRD path
+	crdPath := filepath.Join(projectRoot, "charts", "shaper-crds", "templates", "crds")
+	if info, err := os.Stat(crdPath); err != nil || !info.IsDir() {
+		return fmt.Errorf("CRD path does not exist or is not a directory: %s: %w", crdPath, err)
+	}
+
+	// Use absolute path in deploy config
 	deployConfig := kind.DeployConfig{
 		Kubeconfig:  state.Kubeconfig,
 		Namespace:   m.config.Shaper.Namespace,
-		CRDPaths:    crdPaths,
+		CRDPaths:    []string{crdPath}, // Now uses ABSOLUTE path
 		WaitTimeout: 2 * time.Minute,
 	}
 

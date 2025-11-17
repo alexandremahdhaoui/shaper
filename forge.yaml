@@ -117,6 +117,7 @@ build:
     spec:
       env:
         CGO_ENABLED: "1"
+      args: ["-tags", "e2e"]
 
   - name: shaper-tftp
     src: ./cmd/shaper-tftp

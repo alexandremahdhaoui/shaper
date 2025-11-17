@@ -1,14 +1,16 @@
 //go:build e2e
 
-package e2e
+package e2e_test
 
 import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
+	e2e "github.com/alexandremahdhaoui/shaper/pkg/test/e2e"
 	"github.com/alexandremahdhaoui/shaper/pkg/test/e2e/forge"
 	"github.com/alexandremahdhaoui/shaper/pkg/test/e2e/infrastructure"
 	"github.com/alexandremahdhaoui/shaper/pkg/test/e2e/scenario"
@@ -40,11 +42,11 @@ func TestE2EFrameworkLifecycle(t *testing.T) {
 	config := map[string]interface{}{
 		"network": map[string]interface{}{
 			"cidr":      "192.168.100.1/24",
-			"bridge":    "br-e2e-lifecycle",
+			"bridge":    "br-e2e-lc", // Linux bridge names max 15 chars
 			"dhcpRange": "192.168.100.10,192.168.100.100",
 		},
 		"kind": map[string]interface{}{
-			"clusterName": "e2e-lifecycle",
+			"clusterName": "e2e-lc",
 		},
 		"shaper": map[string]interface{}{
 			"namespace":   "default",
@@ -391,15 +393,15 @@ func TestReportGeneration(t *testing.T) {
 	startTime := time.Now().Add(-5 * time.Minute)
 	endTime := time.Now()
 
-	testResult := &TestResult{
+	testResult := &e2e.TestResult{
 		Version: "1.0.0",
 		TestID:  "test-report-123",
-		Scenario: ScenarioInfo{
+		Scenario: e2e.ScenarioInfo{
 			Name:        "Test Scenario",
 			Description: "A test scenario for report generation",
 			Tags:        []string{"test", "report"},
 		},
-		Execution: ExecutionInfo{
+		Execution: e2e.ExecutionInfo{
 			StartTime:    startTime,
 			EndTime:      endTime,
 			Duration:     endTime.Sub(startTime).Seconds(),
@@ -407,18 +409,18 @@ func TestReportGeneration(t *testing.T) {
 			Status:       "passed",
 			ExitCode:     0,
 		},
-		Infra: Infrastructure{
-			KindCluster: KindClusterInfo{
+		Infra: e2e.Infrastructure{
+			KindCluster: e2e.KindClusterInfo{
 				Name:       "test-cluster",
 				Kubeconfig: "/tmp/kubeconfig",
 			},
-			Network: NetworkInfo{
+			Network: e2e.NetworkInfo{
 				Bridge:    "br-test",
 				CIDR:      "192.168.100.1/24",
 				DHCPRange: "192.168.100.10,192.168.100.100",
 			},
 		},
-		VMs: []VMResult{
+		VMs: []e2e.VMResult{
 			{
 				Name:       "test-vm-1",
 				UUID:       "11111111-1111-1111-1111-111111111111",
@@ -426,7 +428,7 @@ func TestReportGeneration(t *testing.T) {
 				Status:     "passed",
 				Memory:     "1024",
 				VCPUs:      1,
-				Assertions: []AssertionInfo{
+				Assertions: []e2e.AssertionInfo{
 					{
 						Type:        "dhcp_lease",
 						Description: "DHCP lease obtained",
@@ -446,7 +448,7 @@ func TestReportGeneration(t *testing.T) {
 				},
 			},
 		},
-		Summary: AssertionStats{
+		Summary: e2e.AssertionStats{
 			Total:    2,
 			Passed:   2,
 			Failed:   0,
@@ -465,7 +467,7 @@ func TestReportGeneration(t *testing.T) {
 	assert.Equal(t, 100.0, testResult.Summary.PassRate)
 
 	// Validate log collection structure
-	logs := &LogCollection{
+	logs := &e2e.LogCollection{
 		FrameworkLog: "Framework log content",
 		DnsmasqLog:   "Dnsmasq log content",
 		ShaperAPILog: "Shaper API log content",
@@ -482,10 +484,26 @@ func TestReportGeneration(t *testing.T) {
 func getProjectRoot(t *testing.T) string {
 	t.Helper()
 
-	// From pkg/test/e2e, go up 3 levels to reach project root
-	wd, err := os.Getwd()
-	require.NoError(t, err)
+	// Use the location of THIS file to find project root
+	_, filename, _, ok := runtime.Caller(1)
+	if !ok {
+		t.Fatal("could not determine source file location")
+	}
 
-	projectRoot := filepath.Join(wd, "..", "..", "..")
-	return projectRoot
+	// From pkg/test/e2e/integration_test.go, walk up 3 levels to project root
+	projectRoot := filepath.Join(filepath.Dir(filename), "..", "..", "..")
+
+	// Verify by checking for go.mod
+	gomodPath := filepath.Join(projectRoot, "go.mod")
+	if _, err := os.Stat(gomodPath); err != nil {
+		t.Fatalf("could not find project root (go.mod not found at %s): %v", gomodPath, err)
+	}
+
+	// Convert to absolute path
+	absRoot, err := filepath.Abs(projectRoot)
+	if err != nil {
+		t.Fatalf("could not get absolute path: %v", err)
+	}
+
+	return absRoot
 }

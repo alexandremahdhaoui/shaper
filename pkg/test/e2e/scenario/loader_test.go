@@ -430,9 +430,7 @@ func TestLoadExampleScenarios(t *testing.T) {
 	// Test loading all scenarios at once
 	t.Run("LoadAllExampleScenarios", func(t *testing.T) {
 		var paths []string
-		for _, scenarioFile := range exampleScenarios {
-			paths = append(paths, scenarioFile)
-		}
+		paths = append(paths, exampleScenarios...)
 
 		scenarios, errs := loader.LoadMultiple(paths)
 		assert.Empty(t, errs, "Should load all example scenarios without errors")

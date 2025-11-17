@@ -6,17 +6,17 @@ import "time"
 
 // TestResult contains comprehensive test execution results
 type TestResult struct {
-	Version   string          `json:"version"`
-	TestID    string          `json:"testID"`
-	Scenario  ScenarioInfo    `json:"scenario"`
-	Execution ExecutionInfo   `json:"execution"`
-	Infra     Infrastructure  `json:"infrastructure"`
-	Resources []ResourceInfo  `json:"resources,omitempty"`
-	VMs       []VMResult      `json:"vms"`
-	Summary   AssertionStats  `json:"assertions"`
-	Errors    []ErrorInfo     `json:"errors,omitempty"`
-	Logs      LogPaths        `json:"logs"`
-	Metadata  TestMetadata    `json:"metadata,omitempty"`
+	Version   string         `json:"version"`
+	TestID    string         `json:"testID"`
+	Scenario  ScenarioInfo   `json:"scenario"`
+	Execution ExecutionInfo  `json:"execution"`
+	Infra     Infrastructure `json:"infrastructure"`
+	Resources []ResourceInfo `json:"resources,omitempty"`
+	VMs       []VMResult     `json:"vms"`
+	Summary   AssertionStats `json:"assertions"`
+	Errors    []ErrorInfo    `json:"errors,omitempty"`
+	Logs      LogPaths       `json:"logs"`
+	Metadata  TestMetadata   `json:"metadata,omitempty"`
 }
 
 // ScenarioInfo contains scenario metadata
@@ -99,11 +99,11 @@ type VMEvent struct {
 
 // VMMetrics contains performance metrics
 type VMMetrics struct {
-	ProvisionTime      float64 `json:"provisionTime"`      // seconds
-	DHCPLeaseTime      float64 `json:"dhcpLeaseTime"`      // seconds
-	TFTPBootTime       float64 `json:"tftpBootTime"`       // seconds
-	HTTPBootTime       float64 `json:"httpBootTime"`       // seconds
-	FirstResponseTime  float64 `json:"firstResponseTime"`  // seconds
+	ProvisionTime     float64 `json:"provisionTime"`     // seconds
+	DHCPLeaseTime     float64 `json:"dhcpLeaseTime"`     // seconds
+	TFTPBootTime      float64 `json:"tftpBootTime"`      // seconds
+	HTTPBootTime      float64 `json:"httpBootTime"`      // seconds
+	FirstResponseTime float64 `json:"firstResponseTime"` // seconds
 }
 
 // AssertionInfo contains assertion details
@@ -130,8 +130,8 @@ type AssertionStats struct {
 // ErrorInfo contains error details
 type ErrorInfo struct {
 	Timestamp  time.Time `json:"timestamp"`
-	Severity   string    `json:"severity"`   // error, warning, info
-	Component  string    `json:"component"`  // infrastructure, vm, assertion, resource
+	Severity   string    `json:"severity"`  // error, warning, info
+	Component  string    `json:"component"` // infrastructure, vm, assertion, resource
 	Message    string    `json:"message"`
 	Details    string    `json:"details,omitempty"`
 	StackTrace string    `json:"stackTrace,omitempty"`
@@ -163,10 +163,10 @@ type TestMetadata struct {
 
 // LogCollection contains collected logs from test execution
 type LogCollection struct {
-	FrameworkLog string
-	DnsmasqLog   string
-	ShaperAPILog string
-	KubectlLog   string
+	FrameworkLog  string
+	DnsmasqLog    string
+	ShaperAPILog  string
+	KubectlLog    string
 	VMConsoleLogs map[string]string // VM name -> console log
 	VMSerialLogs  map[string]string // VM name -> serial log
 }
