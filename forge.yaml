@@ -42,50 +42,6 @@ test:
     runner: alias://e2e-runner
 
 # ----------------------------------------------------------------------
-generateOpenAPI:
-  defaults:
-    # -- sourceDir is the default directory locating the open api specifications.
-    sourceDir: ./api
-    # -- destinationDir is the default local directory where the generated packages will be written to.
-    destinationDir: ./pkg/generated
-    # -- engine that will generate the openapi configuration
-    engine: go://go-gen-openapi
-
-  specs:
-    # shaper
-    - name: shaper
-      versions:
-        - v1
-      client:
-        enabled: true
-        packageName: shaperclient
-      server:
-        enabled: true
-        packageName: shaperserver
-
-    # webhook-resolver
-    - name: shaper-webhook-resolver
-      versions:
-        - v1
-      client:
-        enabled: true
-        packageName: resolverclient
-      server:
-        enabled: true
-        packageName: resolverserver
-
-    # webhook-transformer
-    - name: shaper-webhook-transformer
-      versions:
-        - v1
-      client:
-        enabled: true
-        packageName: transformerclient
-      server:
-        enabled: true
-        packageName: transformerserver
-
-# ----------------------------------------------------------------------
 # -- build defines the artifacts to build
 build:
   # Convenience target to run all code generation in sequence
@@ -97,6 +53,48 @@ build:
   - name: format
     src: .
     engine: go://go-format
+
+  # OpenAPI generation - shaper v1
+  - name: generate-openapi-shaper-v1
+    src: .
+    engine: go://go-gen-openapi
+    spec:
+      sourceFile: ./api/shaper.v1.yaml
+      destinationDir: ./pkg/generated
+      client:
+        enabled: true
+        packageName: shaperclient
+      server:
+        enabled: true
+        packageName: shaperserver
+
+  # OpenAPI generation - webhook-resolver v1
+  - name: generate-openapi-shaper-webhook-resolver-v1
+    src: .
+    engine: go://go-gen-openapi
+    spec:
+      sourceFile: ./api/shaper-webhook-resolver.v1.yaml
+      destinationDir: ./pkg/generated
+      client:
+        enabled: true
+        packageName: resolverclient
+      server:
+        enabled: true
+        packageName: resolverserver
+
+  # OpenAPI generation - webhook-transformer v1
+  - name: generate-openapi-shaper-webhook-transformer-v1
+    src: .
+    engine: go://go-gen-openapi
+    spec:
+      sourceFile: ./api/shaper-webhook-transformer.v1.yaml
+      destinationDir: ./pkg/generated
+      client:
+        enabled: true
+        packageName: transformerclient
+      server:
+        enabled: true
+        packageName: transformerserver
 
   # Binaries (require generation to be complete)
   - name: shaper-api
@@ -173,6 +171,19 @@ engines:
   - alias: generate-all
     type: builder
     builder:
+      # OpenAPI generation - call BuildSpecs
+      - engine: go://generic-builder
+        spec:
+          command: "forge"
+          args: ["build", "generate-openapi-shaper-v1"]
+      - engine: go://generic-builder
+        spec:
+          command: "forge"
+          args: ["build", "generate-openapi-shaper-webhook-resolver-v1"]
+      - engine: go://generic-builder
+        spec:
+          command: "forge"
+          args: ["build", "generate-openapi-shaper-webhook-transformer-v1"]
       - engine: go://generic-builder
         spec:
           command: "go"
