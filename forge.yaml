@@ -44,16 +44,6 @@ test:
 # ----------------------------------------------------------------------
 # -- build defines the artifacts to build
 build:
-  # Convenience target to run all code generation in sequence
-  - name: generate-all
-    src: .
-    engine: alias://generate-all
-
-  # Code quality
-  - name: format
-    src: .
-    engine: go://go-format
-
   # OpenAPI generation - shaper v1
   - name: generate-openapi-shaper-v1
     src: .
@@ -95,6 +85,16 @@ build:
       server:
         enabled: true
         packageName: transformerserver
+
+  # Convenience target to run all code generation in sequence
+  - name: generate-all
+    src: .
+    engine: alias://generate-all
+
+  # Code quality
+  - name: format
+    src: .
+    engine: go://go-format
 
   # Binaries (require generation to be complete)
   - name: shaper-api

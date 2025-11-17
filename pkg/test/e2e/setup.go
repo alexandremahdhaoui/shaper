@@ -1,5 +1,3 @@
-//go:build e2e
-
 package e2e
 
 import (
@@ -14,7 +12,7 @@ import (
 	"github.com/alexandremahdhaoui/shaper/pkg/network"
 	"github.com/alexandremahdhaoui/shaper/pkg/test/kind"
 	"github.com/alexandremahdhaoui/shaper/pkg/vmm"
-	"github.com/alexandremahdhaoui/tooling/pkg/flaterrors"
+	"github.com/alexandremahdhaoui/forge/pkg/flaterrors"
 	"github.com/google/uuid"
 )
 

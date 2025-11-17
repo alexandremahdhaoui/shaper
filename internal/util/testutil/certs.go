@@ -1,5 +1,3 @@
-//go:build unit || integration
-
 /*
 Copyright 2024 Alexandre Mahdhaoui
 

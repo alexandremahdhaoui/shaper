@@ -1,5 +1,3 @@
-//go:build e2e
-
 package vmm
 
 import (
@@ -18,7 +16,7 @@ import (
 
 	"github.com/alexandremahdhaoui/shaper/pkg/cloudinit"
 	"github.com/alexandremahdhaoui/shaper/pkg/execcontext"
-	"github.com/alexandremahdhaoui/tooling/pkg/flaterrors"
+	"github.com/alexandremahdhaoui/forge/pkg/flaterrors"
 	"libvirt.org/go/libvirt"
 	"libvirt.org/go/libvirtxml"
 )

@@ -1,5 +1,3 @@
-//go:build e2e
-
 package e2e
 
 import (
@@ -12,7 +10,7 @@ import (
 	"github.com/alexandremahdhaoui/shaper/pkg/cloudinit"
 	"github.com/alexandremahdhaoui/shaper/pkg/execcontext"
 	"github.com/alexandremahdhaoui/shaper/pkg/vmm"
-	"github.com/alexandremahdhaoui/tooling/pkg/flaterrors"
+	"github.com/alexandremahdhaoui/forge/pkg/flaterrors"
 )
 
 // IPXETestConfig contains iPXE boot test configuration

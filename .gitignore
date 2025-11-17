@@ -30,3 +30,4 @@ build/*
 tmp/*
 .forge
 /shaper-api
+/test/shaper-kubeconfig
