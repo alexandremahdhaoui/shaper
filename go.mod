@@ -1,9 +1,9 @@
 module github.com/alexandremahdhaoui/shaper
 
-go 1.24.1
+go 1.25.0
 
 require (
-	github.com/alexandremahdhaoui/forge v0.9.0
+	github.com/alexandremahdhaoui/forge v0.14.0
 	github.com/coreos/butane v0.25.1
 	github.com/getkin/kin-openapi v0.133.0
 	github.com/go-logr/logr v1.4.3
@@ -27,7 +27,7 @@ require (
 
 require (
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
-	github.com/aws/aws-sdk-go-v2 v1.39.6 // indirect
+	github.com/aws/aws-sdk-go-v2 v1.40.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/clarketm/json v1.17.1 // indirect
@@ -59,7 +59,7 @@ require (
 	github.com/go-openapi/swag/yamlutils v0.25.3 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/google/btree v1.1.3 // indirect
-	github.com/google/gnostic-models v0.7.0 // indirect
+	github.com/google/gnostic-models v0.7.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
