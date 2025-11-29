@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM docker.io/golang:1.24 as downloader
+FROM docker.io/golang:1.25 AS downloader
 
 WORKDIR /workdir
 
@@ -20,7 +20,7 @@ COPY ./go.* ./
 
 RUN go mod download
 
-FROM downloader as builder
+FROM downloader AS builder
 
 ARG GO_BUILD_LDFLAGS
 

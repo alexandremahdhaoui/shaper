@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alexandremahdhaoui/forge/pkg/flaterrors"
 	"github.com/alexandremahdhaoui/shaper/pkg/cloudinit"
 	"github.com/alexandremahdhaoui/shaper/pkg/execcontext"
-	"github.com/alexandremahdhaoui/forge/pkg/flaterrors"
 	"libvirt.org/go/libvirt"
 	"libvirt.org/go/libvirtxml"
 )
@@ -29,10 +29,8 @@ var (
 	errDefineDomain          = errors.New("failed to define domain")
 	errCreateDomain          = errors.New("failed to create domain")
 	errGetDomainXML          = errors.New("failed to get domain XML")
-	errGetDomainIP           = errors.New("failed to get domain IP")
 	errLibvirtNotInitialized = errors.New("libvirt connection is not initialized")
 	errVMNotFound            = errors.New("VM not found")
-	errVMNotRunning          = errors.New("VM not running")
 	errTimeoutWaitingIP      = errors.New("timed out waiting for VM IP address")
 	errGetDomainState        = errors.New("failed to get domain state")
 	errDestroyDomain         = errors.New("failed to destroy domain")
@@ -562,8 +560,8 @@ func (v *VMM) DestroyVM(ctx execcontext.Context, vmName string) error {
 		}
 		vmDiskPath := filepath.Join(tempDir, fmt.Sprintf("%s.qcow2", vmName))
 		cloudInitISOPath := filepath.Join(tempDir, fmt.Sprintf("%s-cloud-init.iso", vmName))
-		os.Remove(vmDiskPath)
-		os.Remove(cloudInitISOPath)
+		_ = os.Remove(vmDiskPath)
+		_ = os.Remove(cloudInitISOPath)
 		return nil
 	}
 

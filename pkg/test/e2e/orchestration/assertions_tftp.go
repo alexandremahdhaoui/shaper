@@ -146,7 +146,7 @@ func (v *TFTPBootValidator) findTFTPRequestInSyslog(vmIP string) (string, bool, 
 	if err != nil {
 		return "", false, fmt.Errorf("%w: %v", ErrDnsmasqLogNotFound, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Read last 1000 lines (avoid reading entire syslog)
 	// This is a simple implementation - for production, use tail or similar

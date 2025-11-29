@@ -27,11 +27,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/yaml"
-	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/alexandremahdhaoui/shaper/pkg/v1alpha1"
 )
@@ -49,6 +50,10 @@ func TestAssignmentValidation(t *testing.T) {
 
 	cl := newTestClient(t)
 	defer cleanupAssignments(t, cl)
+
+	if !webhooksDeployed(t, cl) {
+		t.Skip("shaper webhooks not deployed, skipping validation test")
+	}
 
 	tests := []struct {
 		name        string
@@ -114,6 +119,10 @@ func TestAssignmentMutation(t *testing.T) {
 	cl := newTestClient(t)
 	defer cleanupAssignments(t, cl)
 
+	if !webhooksDeployed(t, cl) {
+		t.Skip("shaper webhooks not deployed, skipping mutation test")
+	}
+
 	assignment := loadAssignmentFixture(t, "valid-assignment.yaml")
 	assignment.Name = "test-mutation"
 
@@ -159,6 +168,10 @@ func TestProfileValidation(t *testing.T) {
 
 	cl := newTestClient(t)
 	defer cleanupProfiles(t, cl)
+
+	if !webhooksDeployed(t, cl) {
+		t.Skip("shaper webhooks not deployed, skipping validation test")
+	}
 
 	tests := []struct {
 		name        string
@@ -211,6 +224,10 @@ func TestProfileMutation(t *testing.T) {
 
 	cl := newTestClient(t)
 	defer cleanupProfiles(t, cl)
+
+	if !webhooksDeployed(t, cl) {
+		t.Skip("shaper webhooks not deployed, skipping mutation test")
+	}
 
 	profile := loadProfileFixture(t, "valid-profile-mutation.yaml")
 
@@ -277,18 +294,63 @@ func TestProfileMutation(t *testing.T) {
 func newTestClient(t *testing.T) client.Client {
 	t.Helper()
 
-	kubeconfig := os.Getenv("KUBECONFIG")
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
-	require.NoError(t, err, "failed to build kubeconfig")
+	cfg, err := config.GetConfig()
+	require.NoError(t, err, "failed to get kubeconfig")
 
 	scheme := runtime.NewScheme()
 	err = v1alpha1.AddToScheme(scheme)
 	require.NoError(t, err, "failed to add v1alpha1 to scheme")
+	err = admissionregistrationv1.AddToScheme(scheme)
+	require.NoError(t, err, "failed to add admissionregistration to scheme")
 
-	cl, err := client.New(config, client.Options{Scheme: scheme})
+	cl, err := client.New(cfg, client.Options{Scheme: scheme})
 	require.NoError(t, err, "failed to create client")
 
 	return cl
+}
+
+// webhooksDeployed checks if the shaper webhooks are deployed in the cluster
+func webhooksDeployed(t *testing.T, cl client.Client) bool {
+	t.Helper()
+
+	ctx := context.Background()
+
+	// Check for MutatingWebhookConfiguration for shaper
+	mwcList := &admissionregistrationv1.MutatingWebhookConfigurationList{}
+	if err := cl.List(ctx, mwcList); err != nil {
+		t.Logf("failed to list MutatingWebhookConfigurations: %v", err)
+		return false
+	}
+
+	for _, mwc := range mwcList.Items {
+		// Check if any webhook configuration is related to shaper
+		for _, wh := range mwc.Webhooks {
+			if wh.ClientConfig.Service != nil &&
+				(wh.ClientConfig.Service.Name == "shaper-webhooks" ||
+					wh.ClientConfig.Service.Name == "shaper-webhook") {
+				return true
+			}
+		}
+	}
+
+	// Check for ValidatingWebhookConfiguration for shaper
+	vwcList := &admissionregistrationv1.ValidatingWebhookConfigurationList{}
+	if err := cl.List(ctx, vwcList); err != nil {
+		t.Logf("failed to list ValidatingWebhookConfigurations: %v", err)
+		return false
+	}
+
+	for _, vwc := range vwcList.Items {
+		for _, wh := range vwc.Webhooks {
+			if wh.ClientConfig.Service != nil &&
+				(wh.ClientConfig.Service.Name == "shaper-webhooks" ||
+					wh.ClientConfig.Service.Name == "shaper-webhook") {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func loadAssignmentFixture(t *testing.T, filename string) *v1alpha1.Assignment {

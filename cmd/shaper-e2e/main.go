@@ -572,13 +572,6 @@ func cmdTest(artifactStoreDir string) {
 	}
 }
 
-// debugf prints debug messages to stderr if DEBUG is set
-func debugf(format string, a ...interface{}) {
-	if os.Getenv("SHAPER_E2E_DEBUG") == "1" {
-		fmt.Fprintf(os.Stderr, "[DEBUG] "+format, a...)
-	}
-}
-
 // isPiped returns true if stdout is piped to another process
 func isPiped() bool {
 	stat, _ := os.Stdout.Stat()

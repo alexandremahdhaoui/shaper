@@ -122,7 +122,7 @@ func (v *DHCPLeaseValidator) findLeaseInFile(leaseFilePath string, vm *VMInstanc
 	if err != nil {
 		return "", false, fmt.Errorf("%w: %v", ErrDHCPLeaseFileNotFound, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {

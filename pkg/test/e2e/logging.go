@@ -170,7 +170,7 @@ func (lc *LogCollector) TailLog(ctx context.Context, logPath string, callback fu
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {

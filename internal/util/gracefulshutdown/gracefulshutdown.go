@@ -33,8 +33,13 @@ type GracefulShutdown struct {
 	cancel context.CancelFunc
 	name   string
 
-	once sync.Once
-	wg   *sync.WaitGroup
+	once      sync.Once
+	readyOnce sync.Once
+	wg        *sync.WaitGroup
+
+	// ready is closed when Ready() is called, signaling that all Add() calls have been made.
+	// This prevents a race between WaitGroup.Add() and WaitGroup.Wait().
+	ready chan struct{}
 
 	// exitFunc allows injecting exit behavior for testing
 	exitFunc func(int)
@@ -55,13 +60,25 @@ func NewWithExit(name string, exitFunc func(int)) *GracefulShutdown {
 		cancel:   cancel,
 		name:     name,
 		wg:       wg,
+		ready:    make(chan struct{}),
 		exitFunc: exitFunc,
 	}
 
 	// 4. Ensure gs.Shutdown is always called at least once when the context is done.
+	// We use select to handle both ready and ctx.Done() to prevent goroutine leaks
+	// if Ready() is never called.
 	go func() {
-		<-ctx.Done()
-		gs.Shutdown(0)
+		select {
+		case <-gs.ready:
+			// Ready was called, now wait for context cancellation
+			<-ctx.Done()
+			gs.Shutdown(0)
+		case <-ctx.Done():
+			// Context cancelled before Ready() - this is a bug in the caller
+			// Log a warning and proceed with shutdown anyway
+			slog.Warn("GracefulShutdown: context cancelled before Ready() was called - proceeding with shutdown anyway")
+			gs.Shutdown(0)
+		}
 	}()
 
 	return gs
@@ -104,4 +121,17 @@ func (s *GracefulShutdown) CancelFunc() context.CancelFunc {
 // WaitGroup returns the wait group of the graceful shutdown.
 func (s *GracefulShutdown) WaitGroup() *sync.WaitGroup {
 	return s.wg
+}
+
+// Ready signals that all WaitGroup.Add() calls have been made.
+//
+// IMPORTANT: This method MUST be called after all goroutines have called Add() on the WaitGroup.
+// If Ready() is not called before context cancellation, the auto-shutdown will still proceed
+// but a warning will be logged, as this may indicate a race condition in your setup code.
+//
+// Ready is safe to call multiple times; only the first call has any effect.
+func (s *GracefulShutdown) Ready() {
+	s.readyOnce.Do(func() {
+		close(s.ready)
+	})
 }

@@ -193,3 +193,120 @@ func TestGracefulShutdown_ShutdownIdempotency(t *testing.T) {
 	assert.Equal(t, 1, exitCallCount,
 		"Shutdown should be idempotent - exit should be called exactly once")
 }
+
+// TestGracefulShutdown_Ready verifies Ready() enables auto-shutdown on context cancellation.
+func TestGracefulShutdown_Ready(t *testing.T) {
+	t.Run("auto-shutdown after Ready and context cancel", func(t *testing.T) {
+		var mu sync.Mutex
+		exitCalled := false
+		var exitCode int
+		mockExit := func(code int) {
+			mu.Lock()
+			defer mu.Unlock()
+			exitCode = code
+			exitCalled = true
+		}
+
+		gs := gracefulshutdown.NewWithExit("test", mockExit)
+
+		// Add to waitgroup before Ready
+		gs.WaitGroup().Add(1)
+		go func() {
+			<-gs.Context().Done()
+			gs.WaitGroup().Done()
+		}()
+
+		// Signal ready - this allows auto-shutdown to proceed
+		gs.Ready()
+
+		// Cancel context to trigger auto-shutdown
+		gs.CancelFunc()()
+
+		// Wait a bit for auto-shutdown goroutine to complete
+		time.Sleep(100 * time.Millisecond)
+
+		// Verify exit was called with code 0 (auto-shutdown uses 0)
+		mu.Lock()
+		defer mu.Unlock()
+		assert.True(t, exitCalled, "exit should be called after context cancel and Ready")
+		assert.Equal(t, 0, exitCode, "auto-shutdown should use exit code 0")
+	})
+
+	t.Run("Ready is idempotent", func(t *testing.T) {
+		mockExit := func(code int) {}
+		gs := gracefulshutdown.NewWithExit("test", mockExit)
+
+		// Call Ready multiple times - should not panic
+		gs.Ready()
+		gs.Ready()
+		gs.Ready()
+
+		// If we get here without panic, test passes
+	})
+
+	t.Run("auto-shutdown works without Ready (with warning)", func(t *testing.T) {
+		var mu sync.Mutex
+		exitCalled := false
+		var exitCode int
+		mockExit := func(code int) {
+			mu.Lock()
+			defer mu.Unlock()
+			exitCalled = true
+			exitCode = code
+		}
+
+		gs := gracefulshutdown.NewWithExit("test", mockExit)
+
+		// Cancel context WITHOUT calling Ready()
+		gs.CancelFunc()()
+
+		// Wait for auto-shutdown to trigger
+		time.Sleep(100 * time.Millisecond)
+
+		mu.Lock()
+		defer mu.Unlock()
+		assert.True(t, exitCalled, "exit SHOULD be called even without Ready")
+		assert.Equal(t, 0, exitCode, "should exit with code 0")
+	})
+
+	t.Run("concurrent Ready and context cancel", func(t *testing.T) {
+		for i := 0; i < 100; i++ { // Run multiple times to catch races
+			var mu sync.Mutex
+			exitCalled := false
+			mockExit := func(code int) {
+				mu.Lock()
+				defer mu.Unlock()
+				exitCalled = true
+			}
+
+			gs := gracefulshutdown.NewWithExit("test", mockExit)
+			gs.WaitGroup().Add(1)
+
+			// Start goroutine that will call Done when context cancels
+			go func() {
+				<-gs.Context().Done()
+				gs.WaitGroup().Done()
+			}()
+
+			// Concurrently call Ready() and cancel context
+			var wg sync.WaitGroup
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				gs.Ready()
+			}()
+			go func() {
+				defer wg.Done()
+				gs.CancelFunc()()
+			}()
+			wg.Wait()
+
+			// Wait for shutdown
+			time.Sleep(50 * time.Millisecond)
+
+			mu.Lock()
+			assert.True(t, exitCalled, "exit should be called in iteration %d", i)
+			mu.Unlock()
+		}
+	})
+}

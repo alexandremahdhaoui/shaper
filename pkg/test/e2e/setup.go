@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/alexandremahdhaoui/forge/pkg/flaterrors"
 	"github.com/alexandremahdhaoui/shaper/pkg/execcontext"
 	"github.com/alexandremahdhaoui/shaper/pkg/network"
 	"github.com/alexandremahdhaoui/shaper/pkg/test/kind"
 	"github.com/alexandremahdhaoui/shaper/pkg/vmm"
-	"github.com/alexandremahdhaoui/forge/pkg/flaterrors"
 	"github.com/google/uuid"
 )
 
@@ -330,7 +330,7 @@ func downloadVMImage(url, destPath string) error {
 	cmd := exec.Command("wget", "-O", destPath, url)
 	if err := cmd.Run(); err != nil {
 		// Clean up partial file
-		os.Remove(destPath)
+		_ = os.Remove(destPath)
 		return fmt.Errorf("failed to download image: %v", err)
 	}
 

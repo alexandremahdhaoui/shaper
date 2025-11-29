@@ -65,7 +65,7 @@ func (r *Runner) Run(ctx context.Context, testID string, scenarioName string) er
 	if err != nil {
 		return fmt.Errorf("failed to connect to libvirt: %w", err)
 	}
-	defer vmmConn.Close()
+	defer func() { _ = vmmConn.Close() }()
 
 	vmOrch := orchestration.NewVMOrchestrator(vmmConn, state.LibvirtNetwork)
 	resApplier := orchestration.NewResourceApplier(state.Kubeconfig, "default")
@@ -135,15 +135,15 @@ func (r *Runner) printReport(result *orchestration.TestResult) {
 		return
 	}
 
-	fmt.Fprintf(os.Stdout, "\n=== Test Report ===\n")
-	fmt.Fprintf(os.Stdout, "Scenario: %s\n", result.Scenario.Name)
-	fmt.Fprintf(os.Stdout, "Status: %s\n", result.Status)
-	fmt.Fprintf(os.Stdout, "Duration: %s\n", result.Duration)
-	fmt.Fprintf(os.Stdout, "\n")
+	_, _ = fmt.Fprintf(os.Stdout, "\n=== Test Report ===\n")
+	_, _ = fmt.Fprintf(os.Stdout, "Scenario: %s\n", result.Scenario.Name)
+	_, _ = fmt.Fprintf(os.Stdout, "Status: %s\n", result.Status)
+	_, _ = fmt.Fprintf(os.Stdout, "Duration: %s\n", result.Duration)
+	_, _ = fmt.Fprintf(os.Stdout, "\n")
 
 	// Print VM results
 	for _, vmResult := range result.VMResults {
-		fmt.Fprintf(os.Stdout, "VM: %s (Status: %s)\n", vmResult.VMName, vmResult.Status)
+		_, _ = fmt.Fprintf(os.Stdout, "VM: %s (Status: %s)\n", vmResult.VMName, vmResult.Status)
 
 		// Print assertions
 		for _, assertion := range vmResult.Assertions {
@@ -151,21 +151,21 @@ func (r *Runner) printReport(result *orchestration.TestResult) {
 			if !assertion.Passed {
 				status = "FAIL"
 			}
-			fmt.Fprintf(os.Stdout, "  [%s] %s: %s (duration: %s)\n",
+			_, _ = fmt.Fprintf(os.Stdout, "  [%s] %s: %s (duration: %s)\n",
 				status,
 				assertion.Type,
 				assertion.Message,
 				assertion.Duration,
 			)
 		}
-		fmt.Fprintf(os.Stdout, "\n")
+		_, _ = fmt.Fprintf(os.Stdout, "\n")
 	}
 
 	// Print errors if any
 	if len(result.Errors) > 0 {
-		fmt.Fprintf(os.Stdout, "Errors:\n")
+		_, _ = fmt.Fprintf(os.Stdout, "Errors:\n")
 		for _, err := range result.Errors {
-			fmt.Fprintf(os.Stdout, "  - %v\n", err)
+			_, _ = fmt.Fprintf(os.Stdout, "  - %v\n", err)
 		}
 	}
 }

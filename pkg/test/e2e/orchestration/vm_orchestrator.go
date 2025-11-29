@@ -219,7 +219,7 @@ func (o *VMOrchestrator) specToVMMConfig(spec VMSpec) vmm.VMConfig {
 	if spec.Memory != "" {
 		// Assume memory is already in MB format (e.g., "2048")
 		var memoryMB uint
-		fmt.Sscanf(spec.Memory, "%d", &memoryMB)
+		_, _ = fmt.Sscanf(spec.Memory, "%d", &memoryMB)
 		if memoryMB > 0 {
 			cfg.MemoryMB = memoryMB
 		}

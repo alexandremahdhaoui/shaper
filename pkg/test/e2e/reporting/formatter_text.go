@@ -188,11 +188,14 @@ func formatText(result *e2e.TestResult, logs *e2e.LogCollection) (string, error)
 		sb.WriteString("ERRORS\n")
 		sb.WriteString(strings.Repeat("-", 6) + "\n")
 		for i, err := range result.Errors {
-			severityColor := colorRed
-			if err.Severity == "warning" {
+			var severityColor string
+			switch err.Severity {
+			case "warning":
 				severityColor = colorYellow
-			} else if err.Severity == "info" {
+			case "info":
 				severityColor = colorBlue
+			default:
+				severityColor = colorRed
 			}
 
 			sb.WriteString(fmt.Sprintf("[%d] %s [%s%s%s] %s\n",
@@ -391,7 +394,7 @@ func formatSummary(result *e2e.TestResult) (string, error) {
 	sb.WriteString(fmt.Sprintf("Scenario: %s\n", result.Scenario.Name))
 	sb.WriteString(fmt.Sprintf("Status:   %s\n", formatStatus(result.Execution.Status)))
 	sb.WriteString(fmt.Sprintf("Duration: %.2fs\n", result.Execution.Duration))
-	sb.WriteString(fmt.Sprintf("\n"))
+	sb.WriteString("\n")
 	sb.WriteString(fmt.Sprintf("VMs:        %d total\n", len(result.VMs)))
 
 	passedVMs := 0
@@ -403,7 +406,7 @@ func formatSummary(result *e2e.TestResult) (string, error) {
 	sb.WriteString(fmt.Sprintf("  Passed:   %d\n", passedVMs))
 	sb.WriteString(fmt.Sprintf("  Failed:   %d\n", len(result.VMs)-passedVMs))
 
-	sb.WriteString(fmt.Sprintf("\n"))
+	sb.WriteString("\n")
 	sb.WriteString(fmt.Sprintf("Assertions: %d total, %d passed, %d failed (%.1f%% pass rate)\n",
 		result.Summary.Total,
 		result.Summary.Passed,
@@ -411,7 +414,7 @@ func formatSummary(result *e2e.TestResult) (string, error) {
 		result.Summary.PassRate*100))
 
 	if result.Summary.Failed > 0 {
-		sb.WriteString(fmt.Sprintf("\n"))
+		sb.WriteString("\n")
 		sb.WriteString(fmt.Sprintf("%sQuick Failure Summary:%s\n", colorRed, colorReset))
 		failureNum := 1
 		for _, vm := range result.VMs {
@@ -425,7 +428,7 @@ func formatSummary(result *e2e.TestResult) (string, error) {
 		}
 	}
 
-	sb.WriteString(fmt.Sprintf("\n"))
+	sb.WriteString("\n")
 	sb.WriteString(fmt.Sprintf("Full report: %s/%s/report.txt\n", result.Logs.ArtifactDir, result.TestID))
 	sb.WriteString(strings.Repeat("=", 60) + "\n")
 

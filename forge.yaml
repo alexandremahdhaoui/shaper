@@ -152,6 +152,10 @@ build:
     src: ./containers/shaper-api/Containerfile
     engine: go://container-build
 
+  - name: shaper-controller-container
+    src: ./containers/shaper-controller/Containerfile
+    engine: go://container-build
+
   - name: shaper-webhook-container
     src: ./containers/shaper-webhook/Containerfile
     engine: go://container-build
@@ -220,13 +224,55 @@ engines:
       - engine: go://testenv-kind
       - engine: go://testenv-lcr
         spec:
-          # -- autoPushImages defines whether to automatically push images from artifact store on setup.
-          autoPushImages: true
-          # -- enabled defines whether the local container registry must be created or not.
           enabled: true
+          namespace: testenv-lcr
+          imagePullSecretName: testenv-lcr-credentials
+          imagePullSecretNamespaces:
+            - default
+            - shaper-system
+          images:
+            - name: local://shaper-controller-container:latest
+            - name: local://shaper-webhook-container:latest
       - engine: go://testenv-helm-install
         spec:
-          charts: []
+          charts:
+            - name: shaper-crds
+              sourceType: local
+              path: ./charts/shaper-crds
+              namespace: default
+              releaseName: shaper-crds
+              createNamespace: false
+              timeout: "5m"
+
+            - name: shaper-controller
+              sourceType: local
+              path: ./charts/shaper-controller
+              namespace: shaper-system
+              releaseName: shaper-controller
+              createNamespace: true
+              timeout: "5m"
+              values:
+                image:
+                  repository: testenv-lcr.testenv-lcr.svc.cluster.local:5000/shaper-controller-container
+                  tag: latest
+                  pullPolicy: IfNotPresent
+                imagePullSecrets:
+                  - name: testenv-lcr-credentials
+
+            - name: shaper-webhooks
+              sourceType: local
+              path: ./charts/shaper-webhooks
+              namespace: shaper-system
+              releaseName: shaper-webhooks
+              createNamespace: false
+              timeout: "5m"
+              values:
+                image:
+                  repository: testenv-lcr.testenv-lcr.svc.cluster.local:5000/shaper-webhook-container
+                  tag: latest
+                  pullPolicy: IfNotPresent
+                imagePullSecrets:
+                  - name: testenv-lcr-credentials
 
   - alias: e2e-test
     type: test-runner
@@ -245,8 +291,16 @@ engines:
       - engine: go://testenv-kind
       - engine: go://testenv-lcr
         spec:
-          autoPushImages: true
           enabled: true
+          namespace: testenv-lcr
+          imagePullSecretName: testenv-lcr-credentials
+          imagePullSecretNamespaces:
+            - default
+            - shaper-system
+          images:
+            - name: local://shaper-api-container:latest
+            - name: local://shaper-controller-container:latest
+            - name: local://shaper-webhook-container:latest
       - engine: go://testenv
         subengines:
           - name: shaper-e2e-testenv

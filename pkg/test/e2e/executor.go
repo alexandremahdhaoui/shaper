@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alexandremahdhaoui/forge/pkg/flaterrors"
 	"github.com/alexandremahdhaoui/shaper/pkg/cloudinit"
 	"github.com/alexandremahdhaoui/shaper/pkg/execcontext"
 	"github.com/alexandremahdhaoui/shaper/pkg/vmm"
-	"github.com/alexandremahdhaoui/forge/pkg/flaterrors"
 )
 
 // IPXETestConfig contains iPXE boot test configuration

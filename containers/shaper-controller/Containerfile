@@ -24,7 +24,7 @@ FROM downloader AS builder
 
 ARG GO_BUILD_LDFLAGS
 
-ARG NAME=shaper-api
+ARG NAME=shaper-controller
 ARG INPUT_CMD="./cmd/${NAME}"
 ARG OUTPUT_BIN="/bin/${NAME}"
 
@@ -41,7 +41,7 @@ RUN CGO_ENABLED=0 \
 
 FROM scratch
 
-ARG NAME=shaper-api
+ARG NAME=shaper-controller
 ARG OUTPUT_BIN="/bin/${NAME}"
 COPY --from=builder ${OUTPUT_BIN} ${OUTPUT_BIN}
-CMD [ "/bin/shaper-api" ]
+CMD [ "/bin/shaper-controller" ]

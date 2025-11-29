@@ -60,10 +60,14 @@ func Serve(servers map[string]*http.Server, gs *gracefulshutdown.GracefulShutdow
 		}()
 	}
 
-	// 2. Await context is done.
+	// 2. Signal that all Add() calls have been made.
+	// This allows the auto-shutdown goroutine to proceed when context is cancelled.
+	gs.Ready()
+
+	// 3. Await context is done.
 	<-gs.Context().Done()
 
-	// 3. Gracefully shutdown each server.
+	// 4. Gracefully shutdown each server.
 	for name, server := range servers {
 		go func() {
 			ctx := context.WithValue(context.Background(), constants.ServerNameContextKey, name)

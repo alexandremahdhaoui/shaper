@@ -110,7 +110,7 @@ func cmdRun(args []string) int {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	format := fs.String("format", "text", "Output format: json or text")
 	verbose := fs.Bool("verbose", false, "Enable verbose output")
-	fs.Parse(args)
+	_ = fs.Parse(args) // Error is handled by flag.ExitOnError
 
 	// Get positional arguments
 	posArgs := fs.Args()
@@ -167,7 +167,7 @@ func cmdRun(args []string) int {
 			// Encode and print
 			encoder := json.NewEncoder(os.Stdout)
 			encoder.SetIndent("", "  ")
-			encoder.Encode(result)
+			_ = encoder.Encode(result) // Ignore encoding error as we're about to exit
 
 			return exitError
 		}
@@ -177,7 +177,7 @@ func cmdRun(args []string) int {
 		// Encode and print
 		encoder := json.NewEncoder(os.Stdout)
 		encoder.SetIndent("", "  ")
-		encoder.Encode(result)
+		_ = encoder.Encode(result) // Ignore encoding error as we're about to exit
 
 		return exitSuccess
 	}
@@ -198,7 +198,7 @@ func cmdListScenarios(args []string) error {
 	fs := flag.NewFlagSet("list-scenarios", flag.ExitOnError)
 	dir := fs.String("dir", "", "Scenario directory")
 	format := fs.String("format", "text", "Output format: json or text")
-	fs.Parse(args)
+	_ = fs.Parse(args) // Error is handled by flag.ExitOnError
 
 	// Get scenario directory
 	scenarioDir := *dir
@@ -262,8 +262,8 @@ func cmdListScenarios(args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "FILE\tNAME\tTAGS\tDESCRIPTION")
-	fmt.Fprintln(w, "----\t----\t----\t-----------")
+	_, _ = fmt.Fprintln(w, "FILE\tNAME\tTAGS\tDESCRIPTION")
+	_, _ = fmt.Fprintln(w, "----\t----\t----\t-----------")
 
 	for _, s := range scenarios {
 		tags := ""
@@ -279,7 +279,7 @@ func cmdListScenarios(args []string) error {
 		// Remove newlines from description
 		desc = truncateAtNewline(desc)
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.File, s.Name, tags, desc)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.File, s.Name, tags, desc)
 	}
 
 	return w.Flush()

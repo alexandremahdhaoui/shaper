@@ -247,8 +247,8 @@ func cmdList(fs *flag.FlagSet, args []string) {
 		}
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tKIND CLUSTER\tCREATED AT")
-		fmt.Fprintln(w, "--\t--\t--")
+		_, _ = fmt.Fprintln(w, "ID\tKIND CLUSTER\tCREATED AT")
+		_, _ = fmt.Fprintln(w, "--\t--\t--")
 
 		for _, env := range environments {
 			kindCluster := env["kindCluster"]
@@ -260,14 +260,14 @@ func cmdList(fs *flag.FlagSet, args []string) {
 				createdAt = "(unknown)"
 			}
 
-			fmt.Fprintf(w, "%s\t%s\t%s\n",
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n",
 				env["id"],
 				kindCluster,
 				createdAt,
 			)
 		}
 
-		w.Flush()
+		_ = w.Flush()
 	}
 }
 

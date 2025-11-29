@@ -30,6 +30,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -53,8 +55,10 @@ func setupTest(t *testing.T) (client.Client, string) {
 		t.Skip("KUBECONFIG not set, skipping integration test")
 	}
 
-	// Create scheme and register v1alpha1 types
+	// Create scheme and register types
 	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, v1alpha1.AddToScheme(scheme))
 
 	// Create client
@@ -68,13 +72,15 @@ func setupTest(t *testing.T) (client.Client, string) {
 	namespace := fmt.Sprintf("%s-%s", testNamespace, uuid.NewString()[:8])
 	ctx := context.Background()
 
-	ns := &metav1.ObjectMeta{Name: namespace}
-	err = cl.Create(ctx, &metav1.Namespace{ObjectMeta: *ns})
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: namespace},
+	}
+	err = cl.Create(ctx, ns)
 	require.NoError(t, err, "failed to create test namespace")
 
 	t.Cleanup(func() {
 		ctx := context.Background()
-		_ = cl.Delete(ctx, &metav1.Namespace{ObjectMeta: *ns})
+		_ = cl.Delete(ctx, ns)
 	})
 
 	return cl, namespace
@@ -113,10 +119,43 @@ func startController(t *testing.T, kubeconfigPath string) *exec.Cmd {
 	return cmd
 }
 
+// controllerDeployed checks if the shaper-controller is deployed in the cluster
+func controllerDeployed(t *testing.T, cl client.Client) bool {
+	t.Helper()
+
+	ctx := context.Background()
+
+	// Check for controller deployment in common namespaces
+	namespaces := []string{"shaper-system", "default", "shaper"}
+
+	for _, ns := range namespaces {
+		deploymentList := &appsv1.DeploymentList{}
+		if err := cl.List(ctx, deploymentList, client.InNamespace(ns)); err != nil {
+			continue
+		}
+
+		for _, dep := range deploymentList.Items {
+			// Look for deployment with "controller" in the name
+			if dep.Name == "shaper-controller" {
+				// Check if deployment has ready replicas
+				if dep.Status.ReadyReplicas > 0 {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
 // TestProfileReconciliation tests that Profile resources get status populated
 func TestProfileReconciliation(t *testing.T) {
 	cl, namespace := setupTest(t)
 	ctx := context.Background()
+
+	if !controllerDeployed(t, cl) {
+		t.Skip("shaper-controller not deployed, skipping reconciliation test")
+	}
 
 	// Create a Profile
 	profileName := "test-profile-" + uuid.NewString()[:8]
@@ -128,8 +167,8 @@ func TestProfileReconciliation(t *testing.T) {
 		Spec: v1alpha1.ProfileSpec{
 			IPXETemplate: "test template",
 			AdditionalContent: []v1alpha1.AdditionalContent{
-				{Name: "ignition", Exposed: true},
-				{Name: "config", Exposed: true},
+				{Name: "ignition", Exposed: true, PostTransformations: []v1alpha1.Transformer{}},
+				{Name: "config", Exposed: true, PostTransformations: []v1alpha1.Transformer{}},
 			},
 		},
 	}
@@ -172,6 +211,10 @@ func TestProfileReconciliation(t *testing.T) {
 func TestAssignmentReconciliation(t *testing.T) {
 	cl, namespace := setupTest(t)
 	ctx := context.Background()
+
+	if !controllerDeployed(t, cl) {
+		t.Skip("shaper-controller not deployed, skipping reconciliation test")
+	}
 
 	testUUID := uuid.New()
 
@@ -231,6 +274,10 @@ func TestProfileIdempotence(t *testing.T) {
 	cl, namespace := setupTest(t)
 	ctx := context.Background()
 
+	if !controllerDeployed(t, cl) {
+		t.Skip("shaper-controller not deployed, skipping idempotence test")
+	}
+
 	// Create a Profile
 	profileName := "test-profile-idem-" + uuid.NewString()[:8]
 	profile := &v1alpha1.Profile{
@@ -241,7 +288,7 @@ func TestProfileIdempotence(t *testing.T) {
 		Spec: v1alpha1.ProfileSpec{
 			IPXETemplate: "test template",
 			AdditionalContent: []v1alpha1.AdditionalContent{
-				{Name: "ignition", Exposed: true},
+				{Name: "ignition", Exposed: true, PostTransformations: []v1alpha1.Transformer{}},
 			},
 		},
 	}
@@ -281,6 +328,10 @@ func TestProfileIdempotence(t *testing.T) {
 func TestAssignmentIdempotence(t *testing.T) {
 	cl, namespace := setupTest(t)
 	ctx := context.Background()
+
+	if !controllerDeployed(t, cl) {
+		t.Skip("shaper-controller not deployed, skipping idempotence test")
+	}
 
 	testUUID := uuid.New()
 
@@ -348,7 +399,7 @@ func TestProfileDeletion(t *testing.T) {
 		Spec: v1alpha1.ProfileSpec{
 			IPXETemplate: "test template",
 			AdditionalContent: []v1alpha1.AdditionalContent{
-				{Name: "ignition", Exposed: true},
+				{Name: "ignition", Exposed: true, PostTransformations: []v1alpha1.Transformer{}},
 			},
 		},
 	}
