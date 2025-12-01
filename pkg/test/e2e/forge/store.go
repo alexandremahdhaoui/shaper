@@ -57,6 +57,11 @@ func (s *JSONEnvironmentStore) Save(env *infrastructure.InfrastructureState) err
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Ensure store directory exists (defensive - handles race conditions)
+	if err := os.MkdirAll(s.storeDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create store directory: %w", err)
+	}
+
 	// Marshal to JSON
 	data, err := json.MarshalIndent(env, "", "  ")
 	if err != nil {

@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,10 +51,14 @@ func TestAssignmentValidation(t *testing.T) {
 
 	cl := newTestClient(t)
 	defer cleanupAssignments(t, cl)
+	defer cleanupProfiles(t, cl)
 
 	if !webhooksDeployed(t, cl) {
 		t.Skip("shaper webhooks not deployed, skipping validation test")
 	}
+
+	// Create the test-profile that assignments reference
+	_ = createTestProfile(t, cl, ctx)
 
 	tests := []struct {
 		name        string
@@ -70,7 +75,7 @@ func TestAssignmentValidation(t *testing.T) {
 			name:        "invalid UUID rejected",
 			fixture:     "invalid-assignment-uuid.yaml",
 			expectError: true,
-			errorMsg:    "uuid",
+			errorMsg:    "UUID",
 		},
 		{
 			name:        "invalid buildarch rejected",
@@ -118,10 +123,14 @@ func TestAssignmentMutation(t *testing.T) {
 
 	cl := newTestClient(t)
 	defer cleanupAssignments(t, cl)
+	defer cleanupProfiles(t, cl)
 
 	if !webhooksDeployed(t, cl) {
 		t.Skip("shaper webhooks not deployed, skipping mutation test")
 	}
+
+	// Create the test-profile that assignments reference
+	_ = createTestProfile(t, cl, ctx)
 
 	assignment := loadAssignmentFixture(t, "valid-assignment.yaml")
 	assignment.Name = "test-mutation"
@@ -269,9 +278,29 @@ func TestProfileMutation(t *testing.T) {
 		"should have UUID label for each exposed content")
 
 	// Test idempotency - update should preserve UUIDs
-	created.Spec.IPXETemplate = "#!ipxe\necho Updated template\n"
-	err = cl.Update(ctx, created)
-	require.NoError(t, err, "failed to update profile")
+	// Use retry loop to handle optimistic concurrency conflicts from controller reconciliation
+	var updateErr error
+	for i := 0; i < 3; i++ {
+		// Get fresh version before update
+		fresh := &v1alpha1.Profile{}
+		err = cl.Get(ctx, client.ObjectKey{
+			Namespace: profile.Namespace,
+			Name:      profile.Name,
+		}, fresh)
+		require.NoError(t, err, "failed to get fresh profile for update")
+
+		fresh.Spec.IPXETemplate = "#!ipxe\necho Updated template\n"
+		updateErr = cl.Update(ctx, fresh)
+		if updateErr == nil {
+			created = fresh // use the successfully updated object for subsequent checks
+			break
+		}
+		if !errors.IsConflict(updateErr) {
+			break // non-conflict error, don't retry
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	require.NoError(t, updateErr, "failed to update profile after retries")
 
 	// Get again and verify UUIDs are preserved
 	updated := &v1alpha1.Profile{}
@@ -387,6 +416,38 @@ func loadProfileFixture(t *testing.T, filename string) *v1alpha1.Profile {
 	if profile.Labels == nil {
 		profile.Labels = make(map[string]string)
 	}
+
+	return profile
+}
+
+// ptr returns a pointer to the given value
+func ptr[T any](v T) *T {
+	return &v
+}
+
+// createTestProfile creates a profile named "test-profile" that assignment fixtures reference
+func createTestProfile(t *testing.T, cl client.Client, ctx context.Context) *v1alpha1.Profile {
+	t.Helper()
+
+	profile := &v1alpha1.Profile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-profile",
+			Namespace: "default",
+		},
+		Spec: v1alpha1.ProfileSpec{
+			IPXETemplate: "#!ipxe\necho Test Profile\n",
+			AdditionalContent: []v1alpha1.AdditionalContent{
+				{
+					Name:    "config",
+					Exposed: false,
+					Inline:  ptr("test-config-content"),
+				},
+			},
+		},
+	}
+
+	err := cl.Create(ctx, profile)
+	require.NoError(t, err, "failed to create test-profile for assignment tests")
 
 	return profile
 }

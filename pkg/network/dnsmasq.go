@@ -328,6 +328,20 @@ func (m *DnsmasqManager) Get(ctx context.Context, id string) (*DnsmasqInfo, erro
 	}, nil
 }
 
+// GetProcess returns the DnsmasqProcess for the given ID
+// Returns nil if the process doesn't exist
+// This allows tests to directly call IsRunning() on the process
+func (m *DnsmasqManager) GetProcess(id string) *DnsmasqProcess {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	entry, exists := m.processes[id]
+	if !exists {
+		return nil
+	}
+	return entry.process
+}
+
 // Delete stops and removes a dnsmasq process
 // Idempotent - returns nil if process doesn't exist
 func (m *DnsmasqManager) Delete(ctx context.Context, id string) error {

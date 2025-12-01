@@ -29,6 +29,7 @@ import (
 	driverwebhook "github.com/alexandremahdhaoui/shaper/internal/driver/webhook"
 	"github.com/alexandremahdhaoui/shaper/internal/k8s"
 	"github.com/alexandremahdhaoui/shaper/internal/util/gracefulshutdown"
+	"github.com/alexandremahdhaoui/shaper/internal/util/logging"
 )
 
 const (
@@ -44,6 +45,11 @@ var (
 // ------------------------------------------------- Main ----------------------------------------------------------- //
 
 func main() {
+	// --------------------------------------------- Logger --------------------------------------------------------- //
+	// Setup logger FIRST before any other operations to ensure controller-runtime
+	// doesn't panic when trying to log.
+	logging.SetupDefault()
+
 	_, _ = fmt.Fprintf(
 		os.Stdout,
 		"Starting %s version %s (%s) %s\n",

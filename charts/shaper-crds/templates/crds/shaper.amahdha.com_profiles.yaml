@@ -298,7 +298,6 @@ spec:
                       type: object
                   required:
                   - name
-                  - postTransformations
                   type: object
                 type: array
               ipxeTemplate:
@@ -320,3 +319,5 @@ spec:
         type: object
     served: true
     storage: true
+    subresources:
+      status: {}

@@ -45,6 +45,11 @@ const (
 	pollInterval          = 500 * time.Millisecond
 )
 
+// ptr returns a pointer to the given value
+func ptr[T any](v T) *T {
+	return &v
+}
+
 // setupTest creates a test Kubernetes client and namespace
 func setupTest(t *testing.T) (client.Client, string) {
 	t.Helper()
@@ -167,8 +172,8 @@ func TestProfileReconciliation(t *testing.T) {
 		Spec: v1alpha1.ProfileSpec{
 			IPXETemplate: "test template",
 			AdditionalContent: []v1alpha1.AdditionalContent{
-				{Name: "ignition", Exposed: true, PostTransformations: []v1alpha1.Transformer{}},
-				{Name: "config", Exposed: true, PostTransformations: []v1alpha1.Transformer{}},
+				{Name: "ignition", Exposed: true, Inline: ptr("ignition-content")},
+				{Name: "config", Exposed: true, Inline: ptr("config-content")},
 			},
 		},
 	}
@@ -218,6 +223,20 @@ func TestAssignmentReconciliation(t *testing.T) {
 
 	testUUID := uuid.New()
 
+	// Create a Profile first (required by webhook validation)
+	profileName := "test-profile-" + uuid.NewString()[:8]
+	profile := &v1alpha1.Profile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      profileName,
+			Namespace: namespace,
+		},
+		Spec: v1alpha1.ProfileSpec{
+			IPXETemplate: "test template",
+		},
+	}
+	err := cl.Create(ctx, profile)
+	require.NoError(t, err, "failed to create Profile")
+
 	// Create an Assignment
 	assignmentName := "test-assignment-" + uuid.NewString()[:8]
 	assignment := &v1alpha1.Assignment{
@@ -226,7 +245,7 @@ func TestAssignmentReconciliation(t *testing.T) {
 			Namespace: namespace,
 		},
 		Spec: v1alpha1.AssignmentSpec{
-			ProfileName: "test-profile",
+			ProfileName: profileName,
 			SubjectSelectors: v1alpha1.SubjectSelectors{
 				BuildarchList: []v1alpha1.Buildarch{v1alpha1.Arm64},
 				UUIDList:      []string{testUUID.String()},
@@ -234,7 +253,7 @@ func TestAssignmentReconciliation(t *testing.T) {
 		},
 	}
 
-	err := cl.Create(ctx, assignment)
+	err = cl.Create(ctx, assignment)
 	require.NoError(t, err, "failed to create Assignment")
 
 	// Wait for reconciliation - labels should be added
@@ -288,7 +307,7 @@ func TestProfileIdempotence(t *testing.T) {
 		Spec: v1alpha1.ProfileSpec{
 			IPXETemplate: "test template",
 			AdditionalContent: []v1alpha1.AdditionalContent{
-				{Name: "ignition", Exposed: true, PostTransformations: []v1alpha1.Transformer{}},
+				{Name: "ignition", Exposed: true, Inline: ptr("ignition-content")},
 			},
 		},
 	}
@@ -335,6 +354,20 @@ func TestAssignmentIdempotence(t *testing.T) {
 
 	testUUID := uuid.New()
 
+	// Create a Profile first (required by webhook validation)
+	profileName := "test-profile-idem-" + uuid.NewString()[:8]
+	profile := &v1alpha1.Profile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      profileName,
+			Namespace: namespace,
+		},
+		Spec: v1alpha1.ProfileSpec{
+			IPXETemplate: "test template",
+		},
+	}
+	err := cl.Create(ctx, profile)
+	require.NoError(t, err, "failed to create Profile")
+
 	// Create an Assignment
 	assignmentName := "test-assignment-idem-" + uuid.NewString()[:8]
 	assignment := &v1alpha1.Assignment{
@@ -343,7 +376,7 @@ func TestAssignmentIdempotence(t *testing.T) {
 			Namespace: namespace,
 		},
 		Spec: v1alpha1.AssignmentSpec{
-			ProfileName: "test-profile",
+			ProfileName: profileName,
 			SubjectSelectors: v1alpha1.SubjectSelectors{
 				BuildarchList: []v1alpha1.Buildarch{v1alpha1.Arm64},
 				UUIDList:      []string{testUUID.String()},
@@ -351,7 +384,7 @@ func TestAssignmentIdempotence(t *testing.T) {
 		},
 	}
 
-	err := cl.Create(ctx, assignment)
+	err = cl.Create(ctx, assignment)
 	require.NoError(t, err, "failed to create Assignment")
 
 	// Wait for initial reconciliation
@@ -399,7 +432,7 @@ func TestProfileDeletion(t *testing.T) {
 		Spec: v1alpha1.ProfileSpec{
 			IPXETemplate: "test template",
 			AdditionalContent: []v1alpha1.AdditionalContent{
-				{Name: "ignition", Exposed: true, PostTransformations: []v1alpha1.Transformer{}},
+				{Name: "ignition", Exposed: true, Inline: ptr("ignition-content")},
 			},
 		},
 	}

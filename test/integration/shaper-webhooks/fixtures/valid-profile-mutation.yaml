@@ -18,15 +18,12 @@ spec:
             "version": "3.0.0"
           }
         }
-      postTransformations: []
     - name: cloud-init
       exposed: true
       inline: |
         #cloud-config
         runcmd:
           - echo "Hello World"
-      postTransformations: []
     - name: internal-param
       exposed: false
       inline: "not exposed, no UUID label"
-      postTransformations: []

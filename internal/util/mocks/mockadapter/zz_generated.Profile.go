@@ -105,6 +105,78 @@ func (_c *MockProfile_Get_Call) RunAndReturn(run func(ctx context.Context, name 
 	return _c
 }
 
+// GetInNamespace provides a mock function for the type MockProfile
+func (_mock *MockProfile) GetInNamespace(ctx context.Context, name string, namespace string) (types.Profile, error) {
+	ret := _mock.Called(ctx, name, namespace)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetInNamespace")
+	}
+
+	var r0 types.Profile
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) (types.Profile, error)); ok {
+		return returnFunc(ctx, name, namespace)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) types.Profile); ok {
+		r0 = returnFunc(ctx, name, namespace)
+	} else {
+		r0 = ret.Get(0).(types.Profile)
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = returnFunc(ctx, name, namespace)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockProfile_GetInNamespace_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetInNamespace'
+type MockProfile_GetInNamespace_Call struct {
+	*mock.Call
+}
+
+// GetInNamespace is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+//   - namespace string
+func (_e *MockProfile_Expecter) GetInNamespace(ctx interface{}, name interface{}, namespace interface{}) *MockProfile_GetInNamespace_Call {
+	return &MockProfile_GetInNamespace_Call{Call: _e.mock.On("GetInNamespace", ctx, name, namespace)}
+}
+
+func (_c *MockProfile_GetInNamespace_Call) Run(run func(ctx context.Context, name string, namespace string)) *MockProfile_GetInNamespace_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
+	})
+	return _c
+}
+
+func (_c *MockProfile_GetInNamespace_Call) Return(profile types.Profile, err error) *MockProfile_GetInNamespace_Call {
+	_c.Call.Return(profile, err)
+	return _c
+}
+
+func (_c *MockProfile_GetInNamespace_Call) RunAndReturn(run func(ctx context.Context, name string, namespace string) (types.Profile, error)) *MockProfile_GetInNamespace_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListByContentID provides a mock function for the type MockProfile
 func (_mock *MockProfile) ListByContentID(ctx context.Context, configID uuid.UUID) ([]types.Profile, error) {
 	ret := _mock.Called(ctx, configID)

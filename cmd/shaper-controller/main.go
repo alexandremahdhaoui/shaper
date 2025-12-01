@@ -21,6 +21,7 @@ import (
 	"os"
 
 	"github.com/alexandremahdhaoui/shaper/internal/controller/reconciler"
+	"github.com/alexandremahdhaoui/shaper/internal/util/logging"
 	"github.com/alexandremahdhaoui/shaper/pkg/v1alpha1"
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -28,7 +29,6 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
@@ -51,11 +51,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Setup logger
-	opts := zap.Options{
+	// Setup logger using shared logging utility
+	logging.Setup(logging.Options{
 		Development: config.DevelopmentMode,
-	}
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	})
 
 	setupLog.Info("Starting shaper-controller",
 		"metricsAddr", config.MetricsBind,

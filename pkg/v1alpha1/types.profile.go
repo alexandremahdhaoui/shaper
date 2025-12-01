@@ -64,7 +64,7 @@ func init() {
 //     ignitionFile: 445a4753-3d59-4429-8cea-7db9febdeca
 
 //+kubebuilder:object:root=true
-//+kubebuilder:subresources:status
+//+kubebuilder:subresource:status
 
 // Profile is the Schema for the profiles API
 type Profile struct {
@@ -113,7 +113,7 @@ type (
 		Exposed bool `json:"exposed,omitempty"`
 
 		// PostTransformations is a list of Transformers
-		PostTransformations []Transformer `json:"postTransformations"`
+		PostTransformations []Transformer `json:"postTransformations,omitempty"`
 
 		// ObjectRef allow users to specify any reference to a resource holding the desired configuration.
 		// Such resources can be ContentMap, Secrets or any other kind of (custom) resources.

@@ -56,7 +56,9 @@ type ShaperTestEnvironment struct {
 	// Network infrastructure
 	BridgeName     string
 	LibvirtNetwork string
-	DnsmasqID      string // ID for dnsmasq manager
+	DnsmasqID      string                  // ID for dnsmasq manager
+	DnsmasqManager *network.DnsmasqManager // Manager to track dnsmasq process
+	DnsmasqProcess *network.DnsmasqProcess // Direct reference for tests to check IsRunning()
 
 	// KIND cluster
 	KindCluster     string
@@ -148,6 +150,7 @@ func SetupShaperTestEnvironment(config ShaperSetupConfig) (*ShaperTestEnvironmen
 	env.DnsmasqID = dnsmasqID
 
 	dnsmasqMgr := network.NewDnsmasqManager(execCtx)
+	env.DnsmasqManager = dnsmasqMgr // Store manager for teardown and process access
 	dnsmasqConfig := network.DnsmasqConfig{
 		Interface:    config.BridgeName,
 		DHCPRange:    config.DHCPRange,
@@ -160,6 +163,9 @@ func SetupShaperTestEnvironment(config ShaperSetupConfig) (*ShaperTestEnvironmen
 	if err := dnsmasqMgr.Create(ctx, dnsmasqID, dnsmasqConfig); err != nil {
 		return nil, flaterrors.Join(err, fmt.Errorf("failed to start dnsmasq"))
 	}
+
+	// Store process reference for tests to call IsRunning()
+	env.DnsmasqProcess = dnsmasqMgr.GetProcess(dnsmasqID)
 
 	// Copy iPXE boot file to TFTP root if provided
 	if config.IPXEBootFile != "" && fileExists(config.IPXEBootFile) {
@@ -242,10 +248,9 @@ func TeardownShaperTestEnvironment(env *ShaperTestEnvironment) error {
 	ctx := context.Background()
 	execCtx := execcontext.New(nil, []string{"sudo"})
 
-	// Stop dnsmasq using manager
-	if env.DnsmasqID != "" {
-		dnsmasqMgr := network.NewDnsmasqManager(execCtx)
-		if err := dnsmasqMgr.Delete(ctx, env.DnsmasqID); err != nil {
+	// Stop dnsmasq using stored manager (manager must be the same instance that created it)
+	if env.DnsmasqID != "" && env.DnsmasqManager != nil {
+		if err := env.DnsmasqManager.Delete(ctx, env.DnsmasqID); err != nil {
 			errors = append(errors, fmt.Errorf("failed to stop dnsmasq: %v", err))
 		}
 	}

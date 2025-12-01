@@ -206,7 +206,7 @@ func TestAssignment_ValidateCreate_Success(t *testing.T) {
 				},
 			},
 			setupMocks: func(ma *mockadapter.MockAssignment, mp *mockadapter.MockProfile) {
-				mp.EXPECT().Get(mock.Anything, "test-profile").Return(types.Profile{}, nil)
+				mp.EXPECT().GetInNamespace(mock.Anything, "test-profile", mock.Anything).Return(types.Profile{}, nil)
 				ma.EXPECT().FindBySelectors(mock.Anything, mock.Anything).Return(types.Assignment{}, adapter.ErrAssignmentNotFound)
 			},
 		},
@@ -226,7 +226,7 @@ func TestAssignment_ValidateCreate_Success(t *testing.T) {
 				},
 			},
 			setupMocks: func(ma *mockadapter.MockAssignment, mp *mockadapter.MockProfile) {
-				mp.EXPECT().Get(mock.Anything, "test-profile").Return(types.Profile{}, nil)
+				mp.EXPECT().GetInNamespace(mock.Anything, "test-profile", mock.Anything).Return(types.Profile{}, nil)
 				ma.EXPECT().FindDefaultByBuildarch(mock.Anything, "x86_64").Return(types.Assignment{}, adapter.ErrAssignmentNotFound)
 			},
 		},
@@ -337,7 +337,7 @@ func TestAssignment_ValidateCreate_DynamicError(t *testing.T) {
 				},
 			},
 			setupMocks: func(ma *mockadapter.MockAssignment, mp *mockadapter.MockProfile) {
-				mp.EXPECT().Get(mock.Anything, "nonexistent-profile").Return(types.Profile{}, adapter.ErrProfileNotFound)
+				mp.EXPECT().GetInNamespace(mock.Anything, "nonexistent-profile", mock.Anything).Return(types.Profile{}, adapter.ErrProfileNotFound)
 			},
 			errorContains: "assignment must specify an existing profileName",
 		},
@@ -357,7 +357,7 @@ func TestAssignment_ValidateCreate_DynamicError(t *testing.T) {
 				},
 			},
 			setupMocks: func(ma *mockadapter.MockAssignment, mp *mockadapter.MockProfile) {
-				mp.EXPECT().Get(mock.Anything, "test-profile").Return(types.Profile{}, nil)
+				mp.EXPECT().GetInNamespace(mock.Anything, "test-profile", mock.Anything).Return(types.Profile{}, nil)
 				ma.EXPECT().FindBySelectors(mock.Anything, mock.Anything).Return(types.Assignment{}, nil)
 			},
 			errorContains: "assignment cannot reference a subject selector",
@@ -422,7 +422,7 @@ func TestAssignment_ValidateUpdate(t *testing.T) {
 				},
 			},
 			setupMocks: func(ma *mockadapter.MockAssignment, mp *mockadapter.MockProfile) {
-				mp.EXPECT().Get(mock.Anything, "test-profile-updated").Return(types.Profile{}, nil)
+				mp.EXPECT().GetInNamespace(mock.Anything, "test-profile-updated", mock.Anything).Return(types.Profile{}, nil)
 				ma.EXPECT().FindBySelectors(mock.Anything, mock.Anything).Return(types.Assignment{Name: "test-assignment"}, nil)
 			},
 			expectError: false,

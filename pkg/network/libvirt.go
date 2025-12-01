@@ -28,6 +28,8 @@ type LibvirtNetworkConfig struct {
 	Name       string
 	BridgeName string // Linux bridge to attach to
 	Mode       string // "bridge", "nat", "isolated"
+	IPAddress  string // IP address for NAT/isolated mode (e.g., "192.168.150.1")
+	Netmask    string // Netmask for NAT/isolated mode (e.g., "255.255.255.0")
 }
 
 // LibvirtNetworkManager manages libvirt virtual networks
@@ -274,11 +276,19 @@ func GenerateNetworkXML(config LibvirtNetworkConfig) (string, error) {
 			STP:  "on",
 		}
 		// NAT networks need an IP address configuration
-		// Use a unique range to avoid conflicts with default network (192.168.122.0/24)
+		ipAddr := config.IPAddress
+		if ipAddr == "" {
+			// Default to avoid conflicts with default network (192.168.122.0/24)
+			ipAddr = "192.168.150.1"
+		}
+		netmask := config.Netmask
+		if netmask == "" {
+			netmask = "255.255.255.0"
+		}
 		network.IPs = []libvirtxml.NetworkIP{
 			{
-				Address: "192.168.150.1",
-				Netmask: "255.255.255.0",
+				Address: ipAddr,
+				Netmask: netmask,
 			},
 		}
 
@@ -289,10 +299,18 @@ func GenerateNetworkXML(config LibvirtNetworkConfig) (string, error) {
 			STP:  "on",
 		}
 		// Isolated networks also need an IP address
+		ipAddr := config.IPAddress
+		if ipAddr == "" {
+			ipAddr = "192.168.151.1"
+		}
+		netmask := config.Netmask
+		if netmask == "" {
+			netmask = "255.255.255.0"
+		}
 		network.IPs = []libvirtxml.NetworkIP{
 			{
-				Address: "192.168.151.1",
-				Netmask: "255.255.255.0",
+				Address: ipAddr,
+				Netmask: netmask,
 			},
 		}
 

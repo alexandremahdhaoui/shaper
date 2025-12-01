@@ -109,7 +109,7 @@ const (
 
 type (
 	//+kubebuilder:object:root=true
-	//+kubebuilder:subresources:status
+	//+kubebuilder:subresource:status
 
 	// Assignment is the Schema for the assignments API
 	Assignment struct {

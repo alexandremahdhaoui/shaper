@@ -57,6 +57,11 @@ func PrepareLibvirtDir(t *testing.T, parentDir, subdirName string) string {
 	if len(libvirtGroups) > 0 {
 		// Set ACL for all detected libvirt-related groups
 		for _, group := range libvirtGroups {
+			// Verify directory still exists before setting ACL (defensive)
+			if _, err := os.Stat(libvirtDir); os.IsNotExist(err) {
+				t.Logf("Warning: directory %q no longer exists, skipping ACL for group %q", libvirtDir, group)
+				continue
+			}
 			setfaclCmd := exec.Command(
 				"sudo",
 				"setfacl",

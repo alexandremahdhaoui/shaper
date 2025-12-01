@@ -4,6 +4,8 @@ package network_test
 
 import (
 	"context"
+	"fmt"
+	"math/rand"
 	"testing"
 
 	"github.com/alexandremahdhaoui/shaper/pkg/network"
@@ -11,6 +13,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"libvirt.org/go/libvirt"
 )
+
+// generateUniqueIP generates a unique IP in 192.168.{octet}.1 range
+// to avoid conflicts between parallel tests
+func generateUniqueIP() string {
+	// Use range 160-250 to avoid conflicts with default networks
+	octet := 160 + rand.Intn(90)
+	return fmt.Sprintf("192.168.%d.1", octet)
+}
 
 // Integration tests for libvirt network management
 
@@ -57,8 +67,9 @@ func TestLibvirtNetworkManager_Create_NAT_Integration(t *testing.T) {
 	networkName := "net" + uuid.NewString()[:8]
 
 	config := network.LibvirtNetworkConfig{
-		Name: networkName,
-		Mode: "nat",
+		Name:      networkName,
+		Mode:      "nat",
+		IPAddress: generateUniqueIP(), // Use unique IP to avoid conflicts
 	}
 
 	err = mgr.Create(ctx, config)
@@ -83,8 +94,9 @@ func TestLibvirtNetworkManager_Create_Idempotent_Integration(t *testing.T) {
 	networkName := "net" + uuid.NewString()[:8]
 
 	config := network.LibvirtNetworkConfig{
-		Name: networkName,
-		Mode: "isolated",
+		Name:      networkName,
+		Mode:      "isolated",
+		IPAddress: generateUniqueIP(), // Use unique IP to avoid conflicts
 	}
 
 	// Create first time
@@ -113,8 +125,9 @@ func TestLibvirtNetworkManager_Delete_Integration(t *testing.T) {
 	networkName := "net" + uuid.NewString()[:8]
 
 	config := network.LibvirtNetworkConfig{
-		Name: networkName,
-		Mode: "isolated",
+		Name:      networkName,
+		Mode:      "isolated",
+		IPAddress: generateUniqueIP(), // Use unique IP to avoid conflicts
 	}
 
 	// Create network
@@ -146,8 +159,9 @@ func TestLibvirtNetworkManager_Delete_Idempotent_Integration(t *testing.T) {
 	networkName := "net" + uuid.NewString()[:8]
 
 	config := network.LibvirtNetworkConfig{
-		Name: networkName,
-		Mode: "isolated",
+		Name:      networkName,
+		Mode:      "isolated",
+		IPAddress: generateUniqueIP(), // Use unique IP to avoid conflicts
 	}
 
 	// Create and delete network

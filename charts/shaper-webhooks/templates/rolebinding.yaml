@@ -13,14 +13,14 @@
 # limitations under the License.
 
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRoleBinding
 metadata:
   name: {{ include "shaper-webhooks.fullname" . }}
   labels:
     {{- include "shaper-webhooks.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: Role
+  kind: ClusterRole
   name: {{ include "shaper-webhooks.fullname" . }}
 subjects:
 - kind: ServiceAccount

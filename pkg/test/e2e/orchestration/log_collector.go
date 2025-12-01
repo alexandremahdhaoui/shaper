@@ -82,7 +82,9 @@ func (c *LogCollector) CollectAll(ctx context.Context, infra *e2e.ShaperTestEnvi
 		apiLogs, err := c.CollectShaperAPILogs(ctx, infra.Kubeconfig, infra.ShaperNamespace)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to collect shaper-api logs: %w", err))
-		} else {
+		}
+		// Always set the path if returned - error info is written to the file
+		if apiLogs != "" {
 			collection.ShaperAPILogs = apiLogs
 		}
 	}
@@ -92,7 +94,9 @@ func (c *LogCollector) CollectAll(ctx context.Context, infra *e2e.ShaperTestEnvi
 		kindLogs, err := c.CollectKindLogs(ctx, infra.KindCluster)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to collect kind logs: %w", err))
-		} else {
+		}
+		// Always set the path if returned - error info is written to the directory
+		if kindLogs != "" {
 			collection.KindClusterLogs = kindLogs
 		}
 	}
@@ -105,7 +109,9 @@ func (c *LogCollector) CollectAll(ctx context.Context, infra *e2e.ShaperTestEnvi
 		vmLog, err := c.CollectVMLogs(ctx, vm)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to collect logs for VM %s: %w", vm.Spec.Name, err))
-		} else {
+		}
+		// Always set the path if returned - error info is written to the file
+		if vmLog != "" {
 			collection.VMLogs[vm.Spec.Name] = vmLog
 		}
 	}
@@ -120,6 +126,9 @@ func (c *LogCollector) CollectAll(ctx context.Context, infra *e2e.ShaperTestEnvi
 // CollectDnsmasqLogs collects dnsmasq lease and config files
 func (c *LogCollector) CollectDnsmasqLogs(ctx context.Context, dnsmasqID string, tempDirRoot string) (string, error) {
 	logsDir := filepath.Join(c.artifactDir, "logs")
+	if err := os.MkdirAll(logsDir, 0o755); err != nil {
+		return "", fmt.Errorf("%w: failed to create logs directory: %v", ErrLogCollectionFailed, err)
+	}
 
 	// Copy dnsmasq.leases from temp directory
 	leasesSrc := filepath.Join(tempDirRoot, "dnsmasq.leases")
@@ -153,6 +162,9 @@ func (c *LogCollector) CollectDnsmasqLogs(ctx context.Context, dnsmasqID string,
 // CollectShaperAPILogs collects shaper-api pod logs via kubectl
 func (c *LogCollector) CollectShaperAPILogs(ctx context.Context, kubeconfig, namespace string) (string, error) {
 	logsDir := filepath.Join(c.artifactDir, "logs")
+	if err := os.MkdirAll(logsDir, 0o755); err != nil {
+		return "", fmt.Errorf("%w: failed to create logs directory: %v", ErrLogCollectionFailed, err)
+	}
 	logFile := filepath.Join(logsDir, "shaper-api.log")
 
 	// Use kubectl to get logs from all pods with shaper-api label
@@ -188,6 +200,9 @@ func (c *LogCollector) CollectVMLogs(ctx context.Context, vm *VMInstance) (strin
 	}
 
 	logsDir := filepath.Join(c.artifactDir, "logs")
+	if err := os.MkdirAll(logsDir, 0o755); err != nil {
+		return "", fmt.Errorf("%w: failed to create logs directory: %v", ErrLogCollectionFailed, err)
+	}
 	logFile := filepath.Join(logsDir, fmt.Sprintf("%s.log", vm.Spec.Name))
 
 	// Try to get VM console log via virsh console --log

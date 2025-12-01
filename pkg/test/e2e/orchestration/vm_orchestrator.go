@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/alexandremahdhaoui/shaper/pkg/cloudinit"
@@ -79,9 +80,10 @@ type TestEvent struct {
 
 // VMOrchestrator manages VM lifecycle for E2E tests
 type VMOrchestrator struct {
-	vmm     VMMInterface
-	network string // Libvirt network name
-	events  []TestEvent
+	vmm      VMMInterface
+	network  string // Libvirt network name
+	events   []TestEvent
+	eventsMu sync.RWMutex // Protects events slice
 }
 
 // NewVMOrchestrator creates a new VM orchestrator
@@ -199,12 +201,19 @@ func (o *VMOrchestrator) RecordEvent(vmName, eventType, details string) {
 		EventType: eventType,
 		Details:   details,
 	}
+	o.eventsMu.Lock()
 	o.events = append(o.events, event)
+	o.eventsMu.Unlock()
 }
 
 // GetEvents returns all recorded events
 func (o *VMOrchestrator) GetEvents() []TestEvent {
-	return o.events
+	o.eventsMu.RLock()
+	defer o.eventsMu.RUnlock()
+	// Return a copy to prevent race conditions on the returned slice
+	eventsCopy := make([]TestEvent, len(o.events))
+	copy(eventsCopy, o.events)
+	return eventsCopy
 }
 
 // specToVMMConfig converts a VMSpec to vmm.VMConfig

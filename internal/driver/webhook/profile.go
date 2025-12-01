@@ -56,6 +56,11 @@ func (p *Profile) Default(ctx context.Context, obj runtime.Object) error {
 		return err // TODO: wrap err
 	}
 
+	// Initialize Labels map if nil
+	if profile.Labels == nil {
+		profile.Labels = make(map[string]string)
+	}
+
 	// 1. get config UUIDs
 	reverseIDMap := make(map[string]string)
 	for k, value := range profile.Labels {

@@ -12,16 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+{{- if .Values.certificate.enabled }}
+{{- if eq .Values.certificate.issuerRef.kind "Issuer" }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
 metadata:
-  name: {{ include "shaper-webhooks.fullname" . }}
+  name: {{ .Values.certificate.issuerRef.name }}
   labels:
     {{- include "shaper-webhooks.labels" . | nindent 4 }}
-rules:
-- apiGroups: ["shaper.amahdha.com"]
-  resources: ["assignments"]
-  verbs: ["get", "list"]
-- apiGroups: ["shaper.amahdha.com"]
-  resources: ["profiles"]
-  verbs: ["get", "list"]
+spec:
+  selfSigned: {}
+{{- end }}
+{{- end }}

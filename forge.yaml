@@ -37,9 +37,12 @@ test:
     runner: go://go-test
 
   # E2E tests (requires test environment)
+  # Note: Using go://go-test instead of alias://e2e-runner due to a forge bug
+  # where spec.command from test-runner aliases isn't passed to generic-test-runner.
+  # The e2e tests use //go:build e2e tag and can run with go-test.
   - name: e2e
     testenv: alias://e2e-testenv
-    runner: alias://e2e-runner
+    runner: go://go-test
 
 # ----------------------------------------------------------------------
 # -- build defines the artifacts to build
@@ -148,17 +151,35 @@ build:
       args: ["-tags", "e2e"]
 
   # Containers (require binaries to be built)
-  - name: shaper-api-container
+  - name: shaper-api
     src: ./containers/shaper-api/Containerfile
     engine: go://container-build
+    spec:
+      dependsOn:
+        - engine: go://go-dependency-detector
+          spec:
+            filepath: ./cmd/shaper-api/main.go
+            funcName: main
 
-  - name: shaper-controller-container
+  - name: shaper-controller
     src: ./containers/shaper-controller/Containerfile
     engine: go://container-build
+    spec:
+      dependsOn:
+        - engine: go://go-dependency-detector
+          spec:
+            filepath: ./cmd/shaper-controller/main.go
+            funcName: main
 
-  - name: shaper-webhook-container
+  - name: shaper-webhook
     src: ./containers/shaper-webhook/Containerfile
     engine: go://container-build
+    spec:
+      dependsOn:
+        - engine: go://go-dependency-detector
+          spec:
+            filepath: ./cmd/shaper-webhook/main.go
+            funcName: main
 
 # ----------------------------------------------------------------------
 # -- engines defines reusable build engines with custom configurations
@@ -231,8 +252,9 @@ engines:
             - default
             - shaper-system
           images:
-            - name: local://shaper-controller-container:latest
-            - name: local://shaper-webhook-container:latest
+            - name: local://shaper-api:latest
+            - name: local://shaper-controller:latest
+            - name: local://shaper-webhook:latest
       - engine: go://testenv-helm-install
         spec:
           charts:
@@ -253,7 +275,7 @@ engines:
               timeout: "5m"
               values:
                 image:
-                  repository: testenv-lcr.testenv-lcr.svc.cluster.local:5000/shaper-controller-container
+                  repository: "{{.Env.TESTENV_LCR_FQDN}}/shaper-controller"
                   tag: latest
                   pullPolicy: IfNotPresent
                 imagePullSecrets:
@@ -268,7 +290,7 @@ engines:
               timeout: "5m"
               values:
                 image:
-                  repository: testenv-lcr.testenv-lcr.svc.cluster.local:5000/shaper-webhook-container
+                  repository: "{{.Env.TESTENV_LCR_FQDN}}/shaper-webhook"
                   tag: latest
                   pullPolicy: IfNotPresent
                 imagePullSecrets:
@@ -285,6 +307,9 @@ engines:
             CGO_ENABLED: "1"
 
   # E2E test environment (orchestrates setup)
+  # Note: The shaper-e2e-testenv binary (VMs, bridges, dnsmasq) is NOT integrated
+  # with forge testenv because it requires an MCP server implementation.
+  # E2E tests that need VM infrastructure should use a separate setup approach.
   - alias: e2e-testenv
     type: testenv
     testenv:
@@ -298,18 +323,34 @@ engines:
             - default
             - shaper-system
           images:
-            - name: local://shaper-api-container:latest
-            - name: local://shaper-controller-container:latest
-            - name: local://shaper-webhook-container:latest
-      - engine: go://testenv
-        subengines:
-          - name: shaper-e2e-testenv
-            create:
-              command: ./build/bin/shaper-e2e-testenv
-              args: ["create"]
-            delete:
-              command: ./build/bin/shaper-e2e-testenv
-              args: ["delete", "{{.ID}}"]
+            - name: local://shaper-api:latest
+            - name: local://shaper-controller:latest
+            - name: local://shaper-webhook:latest
+      - engine: go://testenv-helm-install
+        spec:
+          charts:
+            - name: shaper-crds
+              sourceType: local
+              path: ./charts/shaper-crds
+              namespace: default
+              releaseName: shaper-crds
+              createNamespace: false
+              timeout: "5m"
+
+            - name: shaper-api
+              sourceType: local
+              path: ./charts/shaper-api
+              namespace: shaper-system
+              releaseName: shaper-api
+              createNamespace: true
+              timeout: "5m"
+              values:
+                image:
+                  repository: "{{.Env.TESTENV_LCR_FQDN}}/shaper-api"
+                  tag: latest
+                  pullPolicy: IfNotPresent
+                imagePullSecrets:
+                  - name: testenv-lcr-credentials
 
   # E2E test runner (executes scenarios)
   - alias: e2e-runner

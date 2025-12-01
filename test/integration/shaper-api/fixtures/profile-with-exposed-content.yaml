@@ -30,7 +30,6 @@ spec:
             }]
           }
         }
-      postTransformations: []
     - name: cloud-init-config
       exposed: true
       inline: |
@@ -39,7 +38,6 @@ spec:
         runcmd:
           - echo "Hello from cloud-init"
           - touch /tmp/cloud-init-ran
-      postTransformations: []
     - name: butane-config
       exposed: true
       inline: |
@@ -56,4 +54,3 @@ spec:
     - name: internal-param
       exposed: false
       inline: "secret-value-not-exposed"
-      postTransformations: []

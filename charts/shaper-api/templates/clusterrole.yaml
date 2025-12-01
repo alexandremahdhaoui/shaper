@@ -15,13 +15,27 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "shaper-webhooks.fullname" . }}
+  name: {{ include "shaper-api.fullname" . }}
   labels:
-    {{- include "shaper-webhooks.labels" . | nindent 4 }}
+    {{- include "shaper-api.labels" . | nindent 4 }}
 rules:
-- apiGroups: ["shaper.amahdha.com"]
-  resources: ["assignments"]
-  verbs: ["get", "list"]
-- apiGroups: ["shaper.amahdha.com"]
-  resources: ["profiles"]
-  verbs: ["get", "list"]
+  # Shaper CRDs - required for controller-runtime cache/informers
+  - apiGroups:
+      - shaper.amahdha.com
+    resources:
+      - profiles
+      - assignments
+    verbs:
+      - get
+      - list
+      - watch
+  # Core resources - required for ObjectRefResolver to fetch secrets/configmaps
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch

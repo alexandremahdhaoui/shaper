@@ -59,6 +59,11 @@ func (a *Assignment) Default(ctx context.Context, obj runtime.Object) error {
 		return err // TODO: wrap err
 	}
 
+	// Initialize Labels map if nil
+	if assignment.Labels == nil {
+		assignment.Labels = make(map[string]string)
+	}
+
 	// 1. Remove all "internal" labels. (remove ones created by users && clean up old ones)
 	for k := range assignment.Labels {
 		if !v1alpha1.IsInternalLabel(k) {
@@ -146,6 +151,11 @@ func (a *Assignment) validateAssignmentStatic(ctx context.Context, obj runtime.O
 }
 
 func (a *Assignment) validateAssignmentDynamic(ctx context.Context, obj runtime.Object) error {
+	// Defensive nil checks for adapters
+	if a.profile == nil || a.assignment == nil {
+		return errors.New("webhook adapters not properly initialized")
+	}
+
 	for _, f := range []validatingFunc{
 		a.validateProfileName,
 		a.validateDefaultAssignmentForBuildarchIsUnique,
@@ -204,7 +214,8 @@ func validateIsDefault(_ context.Context, obj runtime.Object) error {
 func (a *Assignment) validateProfileName(ctx context.Context, obj runtime.Object) error {
 	assignment := obj.(*v1alpha1.Assignment)
 
-	_, err := a.profile.Get(ctx, assignment.Spec.ProfileName)
+	// Use the assignment's namespace to look up the profile
+	_, err := a.profile.GetInNamespace(ctx, assignment.Spec.ProfileName, assignment.Namespace)
 	if errors.Is(err, adapter.ErrProfileNotFound) {
 		// Return an error if the referred profile does not exist.
 		return errors.New("assignment must specify an existing profileName") // TODO: err + wrap err

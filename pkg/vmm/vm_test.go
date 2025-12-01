@@ -46,6 +46,10 @@ func TestVMMStructLifecycle(t *testing.T) {
 	imageCachePath := filepath.Join(cacheDir, imageName)
 
 	// Generate SSH key pair in the temporary directory
+	// Ensure the directory exists (defensive - handles race conditions)
+	if err := os.MkdirAll(tempDir, 0o755); err != nil {
+		t.Fatalf("Failed to ensure temp directory exists: %v", err)
+	}
 	sshKeyPath := filepath.Join(tempDir, "id_rsa")
 	cmd := exec.Command("ssh-keygen", "-t", "rsa", "-b", "2048", "-f", sshKeyPath, "-N", "")
 	if output, err := cmd.CombinedOutput(); err != nil {

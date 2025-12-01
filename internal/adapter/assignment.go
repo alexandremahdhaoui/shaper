@@ -68,11 +68,15 @@ func (a *assignment) FindDefaultByBuildarch(ctx context.Context, buildarch strin
 	// list assignment
 	list := new(v1alpha1.AssignmentList)
 
+	// Build list options, filtering out nil values
+	opts := make([]client.ListOption, 0, 2)
+	if opt := buildarchLabelSelector(buildarch); opt != nil {
+		opts = append(opts, opt)
+	}
+	opts = append(opts, defaultAssignmentLabelSelector())
+
 	// Get the list of default matching the buildarch
-	if err := a.client.List(ctx, list,
-		buildarchLabelSelector(buildarch),
-		defaultAssignmentLabelSelector(),
-	); err != nil {
+	if err := a.client.List(ctx, list, opts...); err != nil {
 		return types.Assignment{}, errors.Join(err, errAssignmentList, errAssignmentFindDefault)
 	}
 
@@ -108,10 +112,17 @@ func (a *assignment) FindDefaultByBuildarch(ctx context.Context, buildarch strin
 func (a *assignment) FindBySelectors(ctx context.Context, selectors types.IPXESelectors) (types.Assignment, error) {
 	// list assignment
 	list := new(v1alpha1.AssignmentList)
-	if err := a.client.List(ctx, list,
-		buildarchLabelSelector(selectors.Buildarch),
-		uuidLabelSelector(selectors.UUID),
-	); err != nil {
+
+	// Build list options, filtering out nil values
+	opts := make([]client.ListOption, 0, 2)
+	if opt := buildarchLabelSelector(selectors.Buildarch); opt != nil {
+		opts = append(opts, opt)
+	}
+	if opt := uuidLabelSelector(selectors.UUID); opt != nil {
+		opts = append(opts, opt)
+	}
+
+	if err := a.client.List(ctx, list, opts...); err != nil {
 		return types.Assignment{}, errors.Join(err, errAssignmentList, errAssignmentFindBySelectors)
 	}
 

@@ -42,6 +42,7 @@ import (
 	"github.com/alexandremahdhaoui/shaper/internal/k8s"
 	"github.com/alexandremahdhaoui/shaper/internal/types"
 	"github.com/alexandremahdhaoui/shaper/internal/util/gracefulshutdown"
+	"github.com/alexandremahdhaoui/shaper/internal/util/logging"
 )
 
 const (
@@ -117,6 +118,10 @@ type Config struct {
 // ------------------------------------------------- Main ----------------------------------------------------------- //
 
 func main() {
+	// Setup logger FIRST before any other operations to ensure controller-runtime
+	// doesn't panic when trying to log.
+	logging.SetupDefault()
+
 	_, _ = fmt.Fprintf(
 		os.Stdout,
 		"Starting %s version %s (%s) %s\n",
@@ -259,6 +264,41 @@ func main() {
 		Handler:           probesHandler,
 		ReadHeaderTimeout: time.Second,
 	}
+
+	// --------------------------------------------- Start Manager -------------------------------------------------- //
+
+	// Start the controller-runtime manager in a goroutine.
+	// The manager starts the cache (informers) which is required for the client to read objects.
+	go func() {
+		slog.Info("Starting controller-runtime manager (cache)")
+		if err := mgr.Start(ctx); err != nil {
+			slog.ErrorContext(ctx, "controller-runtime manager stopped with error", "error", err.Error())
+			gs.Shutdown(1)
+		}
+	}()
+
+	// Pre-register informers for Profile and Assignment types.
+	// This ensures the informers are created before we wait for cache sync.
+	// Without this, the dynamic cache client creates informers on-demand when first used,
+	// which can cause the first requests to hang waiting for the informer to sync.
+	slog.Info("Pre-registering informers for Profile and Assignment...")
+	cache := mgr.GetCache()
+	if _, err := cache.GetInformer(ctx, &v1alpha1.Profile{}); err != nil {
+		slog.ErrorContext(ctx, "failed to get Profile informer", "error", err.Error())
+		gs.Shutdown(1)
+	}
+	if _, err := cache.GetInformer(ctx, &v1alpha1.Assignment{}); err != nil {
+		slog.ErrorContext(ctx, "failed to get Assignment informer", "error", err.Error())
+		gs.Shutdown(1)
+	}
+
+	// Wait for cache to be synced before starting HTTP servers
+	slog.Info("Waiting for cache to sync...")
+	if !cache.WaitForCacheSync(ctx) {
+		slog.ErrorContext(ctx, "failed to wait for cache sync")
+		gs.Shutdown(1)
+	}
+	slog.Info("Cache synced successfully")
 
 	// --------------------------------------------- Run Server ----------------------------------------------------- //
 

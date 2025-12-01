@@ -14,4 +14,3 @@ spec:
       inline: "some inline content"
       webhook:
         url: https://example.com/config
-      postTransformations: []

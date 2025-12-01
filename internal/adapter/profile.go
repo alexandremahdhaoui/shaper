@@ -50,8 +50,10 @@ var (
 
 // Profile is an interface for getting profiles.
 type Profile interface {
-	// Get gets a profile by name.
+	// Get gets a profile by name in the adapter's configured namespace.
 	Get(ctx context.Context, name string) (types.Profile, error)
+	// GetInNamespace gets a profile by name in a specific namespace.
+	GetInNamespace(ctx context.Context, name, namespace string) (types.Profile, error)
 	// ListByContentID lists profiles by content ID.
 	ListByContentID(ctx context.Context, configID uuid.UUID) ([]types.Profile, error)
 }
@@ -76,11 +78,15 @@ type v1a1Profile struct {
 // --------------------------------------------- Get ----------------------------------------------------------- //
 
 func (p *v1a1Profile) Get(ctx context.Context, name string) (types.Profile, error) {
+	return p.GetInNamespace(ctx, name, p.namespace)
+}
+
+func (p *v1a1Profile) GetInNamespace(ctx context.Context, name, namespace string) (types.Profile, error) {
 	obj := new(v1alpha1.Profile)
 
 	if err := p.client.Get(ctx, k8stypes.NamespacedName{
 		Name:      name,
-		Namespace: p.namespace,
+		Namespace: namespace,
 	}, obj); apierrors.IsNotFound(err) {
 		return types.Profile{}, errors.Join(err, ErrProfileNotFound, errProfileGet)
 	} else if err != nil {
