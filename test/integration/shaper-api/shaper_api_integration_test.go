@@ -1,4 +1,18 @@
-//go:build integration
+//go:build e2e
+
+// Copyright 2024 Alexandre Mahdhaoui
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package main_test
 
@@ -7,16 +21,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/alexandremahdhaoui/shaper/pkg/test/kind"
 	"github.com/alexandremahdhaoui/shaper/pkg/v1alpha1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -27,94 +40,33 @@ import (
 )
 
 const (
-	helmChartPath   = "../../../charts/shaper-api"
-	testNamespace   = "shaper-api-test"
+	// shaperNamespace is where forge testenv deploys shaper-api (see forge.yaml e2e-testenv)
+	shaperNamespace = "shaper-system"
 	testTimeout     = 5 * time.Minute
 	testMachineUUID = "00000000-0000-0000-0000-000000000001" // Fake machine UUID for testing
 )
 
 // TestShaperAPIIntegration_FullLifecycle tests the complete lifecycle:
-// 1. Deploy shaper-api via helm chart
-// 2. Wait for pods to be ready
-// 3. Test all API endpoints
-// 4. Clean up
+// 1. Verify shaper-api is deployed by forge testenv
+// 2. Test all API endpoints
 func TestShaperAPIIntegration_FullLifecycle(t *testing.T) {
-	if !kind.IsKindInstalled() || !kind.IsKubectlInstalled() || !kind.IsHelmInstalled() {
-		t.Skip("KIND, kubectl, or helm not installed")
-	}
-
-	// Get test kubeconfig - skip if not available
+	// Get test kubeconfig - fail if not available
 	kubeconfigPath := getTestKubeconfig(t)
-	if kubeconfigPath == "" {
-		t.Skip("No valid kubeconfig found")
-	}
+	require.NotEmpty(t, kubeconfigPath, "kubeconfig must be available - run with forge test e2e run")
 
-	// Generate unique release name
-	releaseName := "test-shaper-api-" + uuid.NewString()[:8]
-	namespace := testNamespace + "-" + uuid.NewString()[:8]
-
-	t.Logf("Installing shaper-api helm chart: release=%s, namespace=%s", releaseName, namespace)
-
-	// Get absolute path to chart
-	chartPath, err := filepath.Abs(helmChartPath)
-	require.NoError(t, err, "failed to get chart absolute path")
-	require.DirExists(t, chartPath, "helm chart directory not found")
-
-	// Get local registry image configuration
-	imageRepository, imageTag := getLocalRegistryImage(t, kubeconfigPath, "shaper-api")
-	t.Logf("Using image: %s:%s", imageRepository, imageTag)
-
-	// Create namespace first (helm will use it with --create-namespace but won't fail if it exists)
-	t.Logf("Creating test namespace: %s", namespace)
-	cmd := exec.Command("kubectl", "--kubeconfig", kubeconfigPath, "create", "namespace", namespace)
-	_ = cmd.Run() // Ignore error if namespace already exists
-
-	// Copy the testenv-lcr-credentials imagePullSecret to the test namespace
-	// The secret is created by forge testenv-lcr in shaper-system/default namespaces
-	copyRegistrySecret(t, kubeconfigPath, namespace)
-
-	// Install helm chart
-	helmConfig := kind.HelmConfig{
-		Kubeconfig:  kubeconfigPath,
-		Namespace:   namespace,
-		ReleaseName: releaseName,
-		ChartPath:   chartPath,
-		Values: map[string]string{
-			"crds.enabled":             "false", // Assume CRDs already installed by test-setup
-			"image.repository":         imageRepository,
-			"image.tag":                imageTag,
-			"image.pullPolicy":         "IfNotPresent", // Pull from testenv-lcr registry
-			"imagePullSecrets[0].name": "testenv-lcr-credentials",
-		},
-		WaitTimeout: testTimeout,
-	}
-
-	err = kind.HelmInstall(helmConfig)
-	require.NoError(t, err, "failed to install helm chart")
-
-	// Ensure cleanup
-	defer func() {
-		t.Logf("Cleaning up helm release: %s", releaseName)
-		_ = kind.HelmUninstall(kubeconfigPath, namespace, releaseName)
-		// Note: Namespace will be cleaned up by helm uninstall with --create-namespace
-	}()
-
-	// Wait for pods to be ready
-	t.Log("Waiting for pods to be ready...")
-	err = kind.WaitForShaperReady(kubeconfigPath, namespace, 2*time.Minute)
-	require.NoError(t, err, "pods did not become ready in time")
+	// Verify shaper-api is deployed (by forge testenv)
+	t.Log("Verifying shaper-api is deployed...")
+	require.True(t, waitForShaperReady(t, kubeconfigPath, shaperNamespace, 2*time.Minute),
+		"shaper-api must be deployed by forge testenv in %s namespace", shaperNamespace)
 
 	// Set up port forwarding
 	t.Log("Setting up port forwarding...")
-	localPort := "38443"
-	remotePort := "30443" // API server port from values.yaml
-
-	cleanup, err := kind.PortForwardService(kubeconfigPath, namespace, "shaper-api", localPort, remotePort)
+	localPort, cleanup, err := portForwardService(t, kubeconfigPath, shaperNamespace, "shaper-api", "30443")
 	require.NoError(t, err, "failed to set up port forwarding")
 	defer cleanup()
 
 	// Base URL for API requests
-	baseURL := fmt.Sprintf("http://localhost:%s", localPort)
+	baseURL := fmt.Sprintf("http://localhost:%d", localPort)
 
 	// Test all API endpoints
 	t.Run("GET /boot.ipxe", func(t *testing.T) {
@@ -122,15 +74,15 @@ func TestShaperAPIIntegration_FullLifecycle(t *testing.T) {
 	})
 
 	t.Run("GET /ipxe with selectors", func(t *testing.T) {
-		testIPXEBySelectorsEndpoint(t, baseURL, kubeconfigPath, namespace)
+		testIPXEBySelectorsEndpoint(t, baseURL, kubeconfigPath)
 	})
 
 	t.Run("Health probes", func(t *testing.T) {
-		testHealthProbes(t, kubeconfigPath, namespace)
+		testHealthProbes(t, kubeconfigPath, shaperNamespace)
 	})
 
 	t.Run("Metrics endpoint", func(t *testing.T) {
-		testMetricsEndpoint(t, kubeconfigPath, namespace)
+		testMetricsEndpoint(t, kubeconfigPath, shaperNamespace)
 	})
 }
 
@@ -145,10 +97,10 @@ func testBootstrapEndpoint(t *testing.T, baseURL string) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	require.NoError(t, err)
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	resp, err := httpClient.Do(req)
 	require.NoError(t, err, "failed to call bootstrap endpoint")
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Should return 200 OK
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK for bootstrap endpoint")
@@ -169,8 +121,11 @@ func testBootstrapEndpoint(t *testing.T, baseURL string) {
 }
 
 // testIPXEBySelectorsEndpoint tests GET /ipxe?uuid=...&buildarch=...
-func testIPXEBySelectorsEndpoint(t *testing.T, baseURL, kubeconfigPath, namespace string) {
-	// First, create a test Profile and Assignment
+func testIPXEBySelectorsEndpoint(t *testing.T, baseURL, kubeconfigPath string) {
+	// Set up Kubernetes client
+	k8sClient := setupKubernetesClient(t, kubeconfigPath)
+
+	ctx := context.Background()
 	testUUID := uuid.NewString()
 	testBuildarch := "x86_64"
 
@@ -179,45 +134,42 @@ func testIPXEBySelectorsEndpoint(t *testing.T, baseURL, kubeconfigPath, namespac
 
 	t.Logf("Creating test Profile: %s", profileName)
 
-	// Create Profile CRD
-	profileYAML := []byte(fmt.Sprintf(`apiVersion: shaper.amahdha.com/v1alpha1
-kind: Profile
-metadata:
-  name: %s
-  labels:
-    test: integration
-spec:
-  ipxeTemplate: |
-    #!ipxe
-    echo Integration test profile
-    echo UUID: {{ .UUID }}
-    echo BuildArch: {{ .BuildArch }}
-`, profileName))
+	// Create Profile CRD using controller-runtime client
+	profile := &v1alpha1.Profile{}
+	profile.Name = profileName
+	profile.Namespace = "default"
+	profile.Labels = map[string]string{"test": "integration"}
+	profile.Spec = v1alpha1.ProfileSpec{
+		IPXETemplate: `#!ipxe
+echo Integration test profile
+echo UUID: {{ .UUID }}
+echo BuildArch: {{ .BuildArch }}
+`,
+	}
 
-	err := kind.CreateTestProfile(kubeconfigPath, "default", profileName, profileYAML)
+	err := k8sClient.Create(ctx, profile)
 	require.NoError(t, err, "failed to create test profile")
+	defer func() { _ = k8sClient.Delete(ctx, profile) }()
 
 	t.Logf("Creating test Assignment: %s", assignmentName)
 
-	// Create Assignment CRD
-	assignmentYAML := []byte(fmt.Sprintf(`apiVersion: shaper.amahdha.com/v1alpha1
-kind: Assignment
-metadata:
-  name: %s
-  labels:
-    test: integration
-spec:
-  subjectSelectors:
-    uuidList:
-      - "%s"
-    buildarch:
-      - "%s"
-  profileName: %s
-  isDefault: false
-`, assignmentName, testUUID, testBuildarch, profileName))
+	// Create Assignment CRD using controller-runtime client
+	assignment := &v1alpha1.Assignment{}
+	assignment.Name = assignmentName
+	assignment.Namespace = "default"
+	assignment.Labels = map[string]string{"test": "integration"}
+	assignment.Spec = v1alpha1.AssignmentSpec{
+		SubjectSelectors: v1alpha1.SubjectSelectors{
+			UUIDList:      []string{testUUID},
+			BuildarchList: []v1alpha1.Buildarch{v1alpha1.Buildarch(testBuildarch)},
+		},
+		ProfileName: profileName,
+		IsDefault:   false,
+	}
 
-	err = kind.CreateTestAssignment(kubeconfigPath, "default", assignmentName, assignmentYAML)
+	err = k8sClient.Create(ctx, assignment)
 	require.NoError(t, err, "failed to create test assignment")
+	defer func() { _ = k8sClient.Delete(ctx, assignment) }()
 
 	// Wait a bit for CRDs to be processed
 	time.Sleep(5 * time.Second)
@@ -226,16 +178,16 @@ spec:
 	url := fmt.Sprintf("%s/ipxe?uuid=%s&buildarch=%s", baseURL, testUUID, testBuildarch)
 	t.Logf("Testing iPXE selectors endpoint: %s", url)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	reqCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
 	require.NoError(t, err)
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	resp, err := httpClient.Do(req)
 	require.NoError(t, err, "failed to call iPXE selectors endpoint")
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Should return 200 OK if assignment matches, or 404 if not found
 	body, err := io.ReadAll(resp.Body)
@@ -260,21 +212,18 @@ func testHealthProbes(t *testing.T, kubeconfigPath, namespace string) {
 	t.Log("Testing health probes...")
 
 	// Set up port forwarding for probes server (port 8081)
-	localPort := "38081"
-	remotePort := "8081"
-
-	cleanup, err := kind.PortForwardService(kubeconfigPath, namespace, "shaper-api", localPort, remotePort)
+	localPort, cleanup, err := portForwardService(t, kubeconfigPath, namespace, "shaper-api", "8081")
 	require.NoError(t, err, "failed to set up port forwarding for probes")
 	defer cleanup()
 
-	baseURL := fmt.Sprintf("http://localhost:%s", localPort)
+	baseURL := fmt.Sprintf("http://localhost:%d", localPort)
 
 	// Test liveness probe
 	t.Run("liveness", func(t *testing.T) {
 		url := baseURL + "/healthz"
 		resp, err := http.Get(url)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode, "liveness probe should return 200 OK")
 		t.Logf("Liveness probe: %s returned %d", url, resp.StatusCode)
@@ -285,7 +234,7 @@ func testHealthProbes(t *testing.T, kubeconfigPath, namespace string) {
 		url := baseURL + "/readyz"
 		resp, err := http.Get(url)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode, "readiness probe should return 200 OK")
 		t.Logf("Readiness probe: %s returned %d", url, resp.StatusCode)
@@ -297,18 +246,15 @@ func testMetricsEndpoint(t *testing.T, kubeconfigPath, namespace string) {
 	t.Log("Testing metrics endpoint...")
 
 	// Set up port forwarding for metrics server (port 8080)
-	localPort := "38080"
-	remotePort := "8080"
-
-	cleanup, err := kind.PortForwardService(kubeconfigPath, namespace, "shaper-api", localPort, remotePort)
+	localPort, cleanup, err := portForwardService(t, kubeconfigPath, namespace, "shaper-api", "8080")
 	require.NoError(t, err, "failed to set up port forwarding for metrics")
 	defer cleanup()
 
-	url := fmt.Sprintf("http://localhost:%s/metrics", localPort)
+	url := fmt.Sprintf("http://localhost:%d/metrics", localPort)
 
 	resp, err := http.Get(url)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "metrics endpoint should return 200 OK")
 
@@ -326,7 +272,7 @@ func testMetricsEndpoint(t *testing.T, kubeconfigPath, namespace string) {
 
 const (
 	// forgeKubeconfigEnvVar is the environment variable set by forge testenv
-	// when running integration tests with `forge test integration run`
+	// when running integration tests with `forge test e2e run`
 	forgeKubeconfigEnvVar = "FORGE_METADATA_TESTENV_KIND_KUBECONFIGPATH"
 )
 
@@ -334,13 +280,8 @@ const (
 // It checks the following sources in order:
 // 1. FORGE_METADATA_TESTENV_KIND_KUBECONFIGPATH - set by forge testenv
 // 2. KUBECONFIG - standard kubernetes config env var
-// 3. Project kubeconfig at test/shaper-kubeconfig (created by `make test-setup`)
 //
-// If no valid kubeconfig is found, it skips the test with a helpful message.
-//
-// Note: This function also fixes a forge bug where kubeconfig files generated by
-// testenv-kind are missing the current-context field. If detected, it sets the
-// current-context to the first available context.
+// If no valid kubeconfig is found, it fails the test with a helpful message.
 func getTestKubeconfig(t *testing.T) string {
 	t.Helper()
 
@@ -363,28 +304,17 @@ func getTestKubeconfig(t *testing.T) string {
 		t.Logf("Warning: KUBECONFIG is set to %s but file does not exist", kubeconfig)
 	}
 
-	// Priority 3: Project kubeconfig (created by `make test-setup`)
-	// Navigate up from test/integration/shaper-api to project root
-	projectRoot, err := filepath.Abs("../../..")
-	require.NoError(t, err)
-	projectKubeconfig := filepath.Join(projectRoot, "test", "shaper-kubeconfig")
-	if _, err := os.Stat(projectKubeconfig); err == nil {
-		t.Logf("Using project kubeconfig: %s", projectKubeconfig)
-		return projectKubeconfig
-	}
-
 	// No valid kubeconfig found
-	t.Skipf("No valid kubeconfig found. Options:\n"+
-		"  1. Run 'forge test integration run' (sets %s)\n"+
-		"  2. Set KUBECONFIG environment variable\n"+
-		"  3. Run 'make test-setup' to create test/shaper-kubeconfig",
+	t.Fatalf("No valid kubeconfig found. Options:\n"+
+		"  1. Run 'forge test e2e run' (sets %s)\n"+
+		"  2. Set KUBECONFIG environment variable",
 		forgeKubeconfigEnvVar)
 	return ""
 }
 
 // fixKubeconfigCurrentContext fixes a forge bug where kubeconfig files generated by
-// testenv-kind are missing the current-context field. This function reads the kubeconfig,
-// and if current-context is empty or missing, it sets it to the first available context.
+// testenv-kind are missing the current-context field. If detected, it sets the
+// current-context to the first available context.
 func fixKubeconfigCurrentContext(t *testing.T, kubeconfigPath string) {
 	t.Helper()
 
@@ -398,7 +328,6 @@ func fixKubeconfigCurrentContext(t *testing.T, kubeconfigPath string) {
 	content := string(data)
 
 	// Check if current-context is already set (not empty)
-	// Look for 'current-context: ""' or 'current-context:' followed by newline
 	emptyContextPattern := regexp.MustCompile(`current-context:\s*(""|'')?\s*\n`)
 	hasEmptyContext := emptyContextPattern.MatchString(content)
 
@@ -411,8 +340,6 @@ func fixKubeconfigCurrentContext(t *testing.T, kubeconfigPath string) {
 	}
 
 	// Extract context name from the contexts section
-	// Looking for pattern like:
-	//   name: kind-forge-test-integration-...
 	contextNamePattern := regexp.MustCompile(`contexts:\s*\n-\s+context:[\s\S]*?name:\s+(\S+)`)
 	matches := contextNamePattern.FindStringSubmatch(content)
 	if len(matches) < 2 {
@@ -426,172 +353,145 @@ func fixKubeconfigCurrentContext(t *testing.T, kubeconfigPath string) {
 	// Fix the kubeconfig
 	var newContent string
 	if hasEmptyContext {
-		// Replace empty current-context with the context name
 		newContent = emptyContextPattern.ReplaceAllString(content, "current-context: "+contextName+"\n")
 	} else {
-		// Add current-context line after 'kind: Config'
 		newContent = strings.Replace(content, "kind: Config", "current-context: "+contextName+"\nkind: Config", 1)
 	}
 
-	// Write the fixed kubeconfig back
 	if err := os.WriteFile(kubeconfigPath, []byte(newContent), 0o600); err != nil {
 		t.Logf("Warning: failed to write fixed kubeconfig: %v", err)
 		return
 	}
 }
 
-// copyRegistrySecret copies the testenv-lcr-credentials secret to the target namespace
-// The secret is created by forge testenv-lcr in the namespaces configured in forge.yaml.
-// For integration tests that create their own namespaces, we need to copy this secret.
-func copyRegistrySecret(t *testing.T, kubeconfigPath, targetNamespace string) {
+// waitForShaperReady waits for shaper-api pods to be ready
+func waitForShaperReady(t *testing.T, kubeconfigPath, namespace string, timeout time.Duration) bool {
 	t.Helper()
 
-	// Try to get the secret from shaper-system first (where forge deploys it per forge.yaml)
-	sourceNamespaces := []string{"shaper-system", "default"}
-	secretName := "testenv-lcr-credentials"
-
-	for _, sourceNS := range sourceNamespaces {
-		// Check if secret exists in source namespace
-		checkCmd := exec.Command("kubectl", "--kubeconfig", kubeconfigPath,
-			"get", "secret", secretName, "-n", sourceNS, "-o", "name")
-		if err := checkCmd.Run(); err != nil {
-			t.Logf("Secret %s not found in %s, trying next namespace", secretName, sourceNS)
-			continue
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		cmd := exec.Command("kubectl",
+			"--kubeconfig", kubeconfigPath,
+			"wait",
+			"--for=condition=ready",
+			"pod",
+			"-l", "app.kubernetes.io/name=shaper-api",
+			"-n", namespace,
+			"--timeout=10s",
+		)
+		if err := cmd.Run(); err == nil {
+			return true
 		}
-
-		t.Logf("Copying %s from %s to %s", secretName, sourceNS, targetNamespace)
-
-		// Get the secret and recreate it in the target namespace
-		// We use get + apply with namespace override to copy the secret
-		cmd := exec.Command("sh", "-c",
-			fmt.Sprintf(`kubectl --kubeconfig %s get secret %s -n %s -o json | \
-				jq 'del(.metadata.namespace, .metadata.resourceVersion, .metadata.uid, .metadata.creationTimestamp)' | \
-				kubectl --kubeconfig %s apply -n %s -f -`,
-				kubeconfigPath, secretName, sourceNS,
-				kubeconfigPath, targetNamespace))
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Logf("Failed to copy secret: %s", string(output))
-			require.NoError(t, err, "failed to copy %s to test namespace", secretName)
-		}
-
-		t.Logf("Successfully copied %s to %s", secretName, targetNamespace)
-		return
+		time.Sleep(5 * time.Second)
 	}
-
-	t.Fatalf("Could not find %s in any of the source namespaces: %v", secretName, sourceNamespaces)
+	return false
 }
 
-const (
-	// forgeRegistryFQDNEnvVar is the environment variable set by forge testenv-lcr
-	// containing the full registry FQDN with port (e.g., "testenv-lcr.testenv-lcr.svc.cluster.local:5000")
-	forgeRegistryFQDNEnvVar = "FORGE_METADATA_TESTENV_LCR_REGISTRYFQDN"
-
-	// defaultRegistryFQDN is the default registry FQDN used when forge testenv-lcr is not available.
-	// This matches the FQDN generated by testenv-lcr when using namespace "testenv-lcr"
-	// as configured in forge.yaml testenv-integration alias.
-	defaultRegistryFQDN = "testenv-lcr.testenv-lcr.svc.cluster.local:5000"
-)
-
-// getLocalRegistryImage returns the image repository and tag for the local registry
-// The image tag defaults to "latest" which matches what forge testenv-lcr pushes (see forge.yaml).
-func getLocalRegistryImage(t *testing.T, kubeconfigPath, imageName string) (repository, tag string) {
+// portForwardService sets up port forwarding to a service
+// Returns the local port, cleanup function, and any error
+func portForwardService(t *testing.T, kubeconfigPath, namespace, serviceName, remotePort string) (int, func(), error) {
 	t.Helper()
 
-	// Get registry FQDN from environment variable set by forge testenv-lcr
-	// Format is: "testenv-lcr.{namespace}.svc.cluster.local:5000"
-	registryFQDN := os.Getenv(forgeRegistryFQDNEnvVar)
-	if registryFQDN == "" {
-		t.Logf("Warning: %s not set, using default: %s", forgeRegistryFQDNEnvVar, defaultRegistryFQDN)
-		registryFQDN = defaultRegistryFQDN
-	} else {
-		t.Logf("Using registry FQDN from %s: %s", forgeRegistryFQDNEnvVar, registryFQDN)
+	// Find an available port
+	listener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to find available port: %w", err)
+	}
+	localPort := listener.Addr().(*net.TCPAddr).Port
+	_ = listener.Close()
+
+	// Set up port-forward
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(ctx, "kubectl",
+		"--kubeconfig", kubeconfigPath,
+		"port-forward",
+		"-n", namespace,
+		"svc/"+serviceName,
+		fmt.Sprintf("%d:%s", localPort, remotePort),
+	)
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Start(); err != nil {
+		cancel()
+		return 0, nil, fmt.Errorf("failed to start port-forward: %w", err)
 	}
 
-	repository = fmt.Sprintf("%s/%s", registryFQDN, imageName)
-	// Use "latest" tag - this matches what forge testenv-lcr pushes (see forge.yaml images config)
-	tag = "latest"
+	t.Logf("Started port-forward (PID %d) to %s/%s port %s on local port %d",
+		cmd.Process.Pid, namespace, serviceName, remotePort, localPort)
 
-	return repository, tag
+	// Wait for port-forward to be ready
+	if err := waitForPortReady(localPort, 30*time.Second); err != nil {
+		cancel()
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		return 0, nil, fmt.Errorf("port-forward not ready: %w", err)
+	}
+
+	cleanup := func() {
+		cancel()
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	}
+
+	return localPort, cleanup, nil
+}
+
+// waitForPortReady waits for a port to become available
+func waitForPortReady(port int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", port), time.Second)
+		if err == nil {
+			_ = conn.Close()
+			return nil
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return fmt.Errorf("timeout waiting for port %d to be ready", port)
+}
+
+// setupKubernetesClient creates a controller-runtime client for the test cluster
+func setupKubernetesClient(t *testing.T, kubeconfigPath string) client.Client {
+	t.Helper()
+
+	t.Setenv("KUBECONFIG", kubeconfigPath)
+
+	cfg, err := config.GetConfig()
+	require.NoError(t, err, "failed to get kubeconfig")
+
+	scheme := runtime.NewScheme()
+	err = v1alpha1.AddToScheme(scheme)
+	require.NoError(t, err, "failed to add v1alpha1 to scheme")
+
+	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme})
+	require.NoError(t, err, "failed to create Kubernetes client")
+
+	return k8sClient
 }
 
 // TestContentEndpoint tests the /content/{uuid} endpoint with exposed content
 func TestContentEndpoint(t *testing.T) {
-	if !kind.IsKindInstalled() || !kind.IsKubectlInstalled() || !kind.IsHelmInstalled() {
-		t.Skip("KIND, kubectl, or helm not installed")
-	}
-
-	// Get test kubeconfig - skip if not available
+	// Get test kubeconfig - fail if not available
 	kubeconfigPath := getTestKubeconfig(t)
-	if kubeconfigPath == "" {
-		t.Skip("No valid kubeconfig found")
-	}
+	require.NotEmpty(t, kubeconfigPath, "kubeconfig must be available - run with forge test e2e run")
 
 	// Set up Kubernetes client
 	k8sClient := setupKubernetesClient(t, kubeconfigPath)
 
-	// Generate unique release name
-	releaseName := "test-content-" + uuid.NewString()[:8]
-	namespace := testNamespace + "-" + uuid.NewString()[:8]
-
-	t.Logf("Installing shaper-api helm chart: release=%s, namespace=%s", releaseName, namespace)
-
-	// Get absolute path to chart
-	chartPath, err := filepath.Abs(helmChartPath)
-	require.NoError(t, err, "failed to get chart absolute path")
-	require.DirExists(t, chartPath, "helm chart directory not found")
-
-	// Get local registry image configuration
-	imageRepository, imageTag := getLocalRegistryImage(t, kubeconfigPath, "shaper-api")
-	t.Logf("Using image: %s:%s", imageRepository, imageTag)
-
-	// Create namespace
-	t.Logf("Creating test namespace: %s", namespace)
-	cmd := exec.Command("kubectl", "--kubeconfig", kubeconfigPath, "create", "namespace", namespace)
-	_ = cmd.Run()
-
-	// Copy the testenv-lcr-credentials imagePullSecret to the test namespace
-	copyRegistrySecret(t, kubeconfigPath, namespace)
-
-	// Install helm chart with webhooks enabled
-	helmConfig := kind.HelmConfig{
-		Kubeconfig:  kubeconfigPath,
-		Namespace:   namespace,
-		ReleaseName: releaseName,
-		ChartPath:   chartPath,
-		Values: map[string]string{
-			"crds.enabled":             "false",
-			"image.repository":         imageRepository,
-			"image.tag":                imageTag,
-			"image.pullPolicy":         "IfNotPresent",
-			"imagePullSecrets[0].name": "testenv-lcr-credentials",
-		},
-		WaitTimeout: testTimeout,
-	}
-
-	err = kind.HelmInstall(helmConfig)
-	require.NoError(t, err, "failed to install helm chart")
-
-	defer func() {
-		t.Logf("Cleaning up helm release: %s", releaseName)
-		_ = kind.HelmUninstall(kubeconfigPath, namespace, releaseName)
-	}()
-
-	// Wait for pods to be ready
-	t.Log("Waiting for pods to be ready...")
-	err = kind.WaitForShaperReady(kubeconfigPath, namespace, 2*time.Minute)
-	require.NoError(t, err, "pods did not become ready in time")
+	// Verify shaper-api is deployed (by forge testenv)
+	t.Log("Verifying shaper-api is deployed...")
+	require.True(t, waitForShaperReady(t, kubeconfigPath, shaperNamespace, 2*time.Minute),
+		"shaper-api must be deployed by forge testenv in %s namespace", shaperNamespace)
 
 	// Set up port forwarding
 	t.Log("Setting up port forwarding...")
-	localPort := "38443"
-	remotePort := "30443"
-
-	cleanup, err := kind.PortForwardService(kubeconfigPath, namespace, "shaper-api", localPort, remotePort)
+	localPort, cleanup, err := portForwardService(t, kubeconfigPath, shaperNamespace, "shaper-api", "30443")
 	require.NoError(t, err, "failed to set up port forwarding")
 	defer cleanup()
 
-	baseURL := fmt.Sprintf("http://localhost:%s", localPort)
+	baseURL := fmt.Sprintf("http://localhost:%d", localPort)
 
 	// Run test cases
 	t.Run("Single exposed content", func(t *testing.T) {
@@ -609,25 +509,6 @@ func TestContentEndpoint(t *testing.T) {
 	t.Run("Non-exposed content not accessible", func(t *testing.T) {
 		testNonExposedContent(t, k8sClient, baseURL)
 	})
-}
-
-// setupKubernetesClient creates a controller-runtime client for the test cluster
-func setupKubernetesClient(t *testing.T, kubeconfigPath string) client.Client {
-	t.Helper()
-
-	os.Setenv("KUBECONFIG", kubeconfigPath)
-
-	cfg, err := config.GetConfig()
-	require.NoError(t, err, "failed to get kubeconfig")
-
-	scheme := runtime.NewScheme()
-	err = v1alpha1.AddToScheme(scheme)
-	require.NoError(t, err, "failed to add v1alpha1 to scheme")
-
-	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme})
-	require.NoError(t, err, "failed to create Kubernetes client")
-
-	return k8sClient
 }
 
 // extractContentUUID extracts the UUID for a given content name from Profile labels
@@ -660,10 +541,10 @@ func getContent(t *testing.T, baseURL, contentID, machineUUID, buildarch string)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	require.NoError(t, err)
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	resp, err := httpClient.Do(req)
 	require.NoError(t, err, "failed to call content endpoint")
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err, "failed to read response body")

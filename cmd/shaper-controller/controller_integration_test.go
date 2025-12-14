@@ -1,20 +1,18 @@
-//go:build integration
+//go:build e2e
 
-/*
-Copyright 2024 Alexandre Mahdhaoui
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-	http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+// Copyright 2024 Alexandre Mahdhaoui
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package main_test
 
@@ -22,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"testing"
 	"time"
 
@@ -56,9 +53,7 @@ func setupTest(t *testing.T) (client.Client, string) {
 
 	// Get kubeconfig from environment or default
 	kubeconfigPath := os.Getenv("KUBECONFIG")
-	if kubeconfigPath == "" {
-		t.Skip("KUBECONFIG not set, skipping integration test")
-	}
+	require.NotEmpty(t, kubeconfigPath, "KUBECONFIG must be set by forge testenv")
 
 	// Create scheme and register types
 	scheme := runtime.NewScheme()
@@ -89,39 +84,6 @@ func setupTest(t *testing.T) (client.Client, string) {
 	})
 
 	return cl, namespace
-}
-
-// startController starts the shaper-controller binary in the background
-func startController(t *testing.T, kubeconfigPath string) *exec.Cmd {
-	t.Helper()
-
-	// Build the controller binary first
-	buildCmd := exec.Command("go", "build", "-o", "/tmp/shaper-controller", "./cmd/shaper-controller")
-	buildCmd.Dir = "../.." // Go to repo root
-	output, err := buildCmd.CombinedOutput()
-	require.NoError(t, err, "failed to build controller: %s", string(output))
-
-	// Start controller
-	cmd := exec.Command("/tmp/shaper-controller")
-	cmd.Env = append(os.Environ(),
-		"SHAPER_CONTROLLER_METRICS_ADDR=:18080",
-		"SHAPER_CONTROLLER_HEALTH_ADDR=:18081",
-		"SHAPER_CONTROLLER_LEADER_ELECTION=false",
-		fmt.Sprintf("KUBECONFIG=%s", kubeconfigPath),
-	)
-
-	require.NoError(t, cmd.Start(), "failed to start controller")
-
-	t.Cleanup(func() {
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-	})
-
-	// Give controller time to start
-	time.Sleep(2 * time.Second)
-
-	return cmd
 }
 
 // controllerDeployed checks if the shaper-controller is deployed in the cluster
@@ -158,9 +120,7 @@ func TestProfileReconciliation(t *testing.T) {
 	cl, namespace := setupTest(t)
 	ctx := context.Background()
 
-	if !controllerDeployed(t, cl) {
-		t.Skip("shaper-controller not deployed, skipping reconciliation test")
-	}
+	require.True(t, controllerDeployed(t, cl), "shaper-controller must be deployed by forge testenv")
 
 	// Create a Profile
 	profileName := "test-profile-" + uuid.NewString()[:8]
@@ -217,9 +177,7 @@ func TestAssignmentReconciliation(t *testing.T) {
 	cl, namespace := setupTest(t)
 	ctx := context.Background()
 
-	if !controllerDeployed(t, cl) {
-		t.Skip("shaper-controller not deployed, skipping reconciliation test")
-	}
+	require.True(t, controllerDeployed(t, cl), "shaper-controller must be deployed by forge testenv")
 
 	testUUID := uuid.New()
 
@@ -293,9 +251,7 @@ func TestProfileIdempotence(t *testing.T) {
 	cl, namespace := setupTest(t)
 	ctx := context.Background()
 
-	if !controllerDeployed(t, cl) {
-		t.Skip("shaper-controller not deployed, skipping idempotence test")
-	}
+	require.True(t, controllerDeployed(t, cl), "shaper-controller must be deployed by forge testenv")
 
 	// Create a Profile
 	profileName := "test-profile-idem-" + uuid.NewString()[:8]
@@ -348,9 +304,7 @@ func TestAssignmentIdempotence(t *testing.T) {
 	cl, namespace := setupTest(t)
 	ctx := context.Background()
 
-	if !controllerDeployed(t, cl) {
-		t.Skip("shaper-controller not deployed, skipping idempotence test")
-	}
+	require.True(t, controllerDeployed(t, cl), "shaper-controller must be deployed by forge testenv")
 
 	testUUID := uuid.New()
 

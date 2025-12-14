@@ -32,3 +32,4 @@ tmp/*
 /shaper-api
 /test/shaper-kubeconfig
 /shaper-controller
+test/e2e/assets/tftp/*.kpxe

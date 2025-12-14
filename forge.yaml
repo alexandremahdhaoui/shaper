@@ -15,13 +15,17 @@
 apiVersion: v1
 name: shaper
 artifactStorePath: .forge/artifact-store.yaml
+envFile: .envrc
 
 # ----------------------------------------------------------------------
 # -- test defines the test specifications
 test:
   # -- verify-tags - verify all test files have build tags
-  - name: verify-tags
+  - name: lint-tags
     runner: "go://go-lint-tags"
+
+  - name: lint-licenses
+    runner: "go://go-lint-licenses"
 
   # Linting
   - name: lint
@@ -31,15 +35,7 @@ test:
   - name: unit
     runner: go://go-test
 
-  # Integration tests (requires test environment)
-  - name: integration
-    testenv: alias://testenv-integration
-    runner: go://go-test
-
   # E2E tests (requires test environment)
-  # Note: Using go://go-test instead of alias://e2e-runner due to a forge bug
-  # where spec.command from test-runner aliases isn't passed to generic-test-runner.
-  # The e2e tests use //go:build e2e tag and can run with go-test.
   - name: e2e
     testenv: alias://e2e-testenv
     runner: go://go-test
@@ -50,7 +46,7 @@ build:
   # OpenAPI generation - shaper v1
   - name: generate-openapi-shaper-v1
     src: .
-    engine: go://go-gen-openapi
+    engine: alias://go-gen-openapi-with-license
     spec:
       sourceFile: ./api/shaper.v1.yaml
       destinationDir: ./pkg/generated
@@ -64,7 +60,7 @@ build:
   # OpenAPI generation - webhook-resolver v1
   - name: generate-openapi-shaper-webhook-resolver-v1
     src: .
-    engine: go://go-gen-openapi
+    engine: alias://go-gen-openapi-with-license
     spec:
       sourceFile: ./api/shaper-webhook-resolver.v1.yaml
       destinationDir: ./pkg/generated
@@ -78,7 +74,7 @@ build:
   # OpenAPI generation - webhook-transformer v1
   - name: generate-openapi-shaper-webhook-transformer-v1
     src: .
-    engine: go://go-gen-openapi
+    engine: alias://go-gen-openapi-with-license
     spec:
       sourceFile: ./api/shaper-webhook-transformer.v1.yaml
       destinationDir: ./pkg/generated
@@ -110,16 +106,6 @@ build:
     dest: ./build/bin
     engine: go://go-build
 
-  # Note: The binary needs -tags e2e because it imports pkg/test/e2e which has build tags
-  - name: shaper-e2e
-    src: ./cmd/shaper-e2e
-    dest: ./build/bin
-    engine: go://go-build
-    spec:
-      env:
-        CGO_ENABLED: "1"
-      args: ["-tags", "e2e"]
-
   - name: shaper-tftp
     src: ./cmd/shaper-tftp
     dest: ./build/bin
@@ -129,26 +115,6 @@ build:
     src: ./cmd/shaper-webhook
     dest: ./build/bin
     engine: go://go-build
-
-  # E2E testenv subengine binary
-  - name: shaper-e2e-testenv
-    src: ./cmd/shaper-e2e-testenv
-    dest: ./build/bin
-    engine: go://go-build
-    spec:
-      env:
-        CGO_ENABLED: "1"
-      args: ["-tags", "e2e"]
-
-  # E2E test runner binary
-  - name: shaper-e2e-runner
-    src: ./cmd/shaper-e2e-runner
-    dest: ./build/bin
-    engine: go://go-build
-    spec:
-      env:
-        CGO_ENABLED: "1"
-      args: ["-tags", "e2e"]
 
   # Containers (require binaries to be built)
   - name: shaper-api
@@ -184,6 +150,16 @@ build:
 # ----------------------------------------------------------------------
 # -- engines defines reusable build engines with custom configurations
 engines:
+  # OpenAPI generation with license headers
+  - alias: go-gen-openapi-with-license
+    type: builder
+    builder:
+      - engine: go://go-gen-openapi
+      - engine: go://generic-builder
+        spec:
+          command: "bash"
+          args: ["./hack/add-license-headers.sh"]
+
   # Module management
   - alias: go-mod-tidy
     type: builder
@@ -209,6 +185,11 @@ engines:
         spec:
           command: "forge"
           args: ["build", "generate-openapi-shaper-webhook-transformer-v1"]
+      # Add license headers to oapi-codegen generated files
+      - engine: go://generic-builder
+        spec:
+          command: "bash"
+          args: ["./hack/add-license-headers.sh"]
       - engine: go://generic-builder
         spec:
           command: "go"
@@ -216,19 +197,19 @@ engines:
       - engine: go://generic-builder
         spec:
           command: "go"
-          args: ["run", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0", "object:headerFile=./hack/boilerplate.go.txt", "paths=./cmd/shaper-api/...;./cmd/shaper-controller/...;./cmd/shaper-tftp/...;./cmd/shaper-webhook/...;./internal/...;./pkg/cloudinit/...;./pkg/constants/...;./pkg/execcontext/...;./pkg/generated/...;./pkg/network/...;./pkg/vmm/...;./pkg/v1alpha1/..."]
+          args: ["run", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0", "object:headerFile=./hack/boilerplate.go.txt", "paths=./cmd/shaper-api/...;./cmd/shaper-controller/...;./cmd/shaper-tftp/...;./cmd/shaper-webhook/...;./internal/...;./pkg/cloudinit/...;./pkg/constants/...;./pkg/execcontext/...;./pkg/generated/...;./pkg/network/...;./pkg/v1alpha1/..."]
       - engine: go://generic-builder
         spec:
           command: "go"
-          args: ["run", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0", "paths=./cmd/shaper-api/...;./cmd/shaper-controller/...;./cmd/shaper-tftp/...;./cmd/shaper-webhook/...;./internal/...;./pkg/cloudinit/...;./pkg/constants/...;./pkg/execcontext/...;./pkg/generated/...;./pkg/network/...;./pkg/vmm/...;./pkg/v1alpha1/...", "crd:generateEmbeddedObjectMeta=true", "output:crd:artifacts:config=charts/shaper-crds/templates/crds"]
+          args: ["run", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0", "paths=./cmd/shaper-api/...;./cmd/shaper-controller/...;./cmd/shaper-tftp/...;./cmd/shaper-webhook/...;./internal/...;./pkg/cloudinit/...;./pkg/constants/...;./pkg/execcontext/...;./pkg/generated/...;./pkg/network/...;./pkg/v1alpha1/...", "crd:generateEmbeddedObjectMeta=true", "output:crd:artifacts:config=charts/shaper-crds/templates/crds"]
       - engine: go://generic-builder
         spec:
           command: "go"
-          args: ["run", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0", "paths=./cmd/shaper-api/...;./cmd/shaper-controller/...;./cmd/shaper-tftp/...;./cmd/shaper-webhook/...;./internal/...;./pkg/cloudinit/...;./pkg/constants/...;./pkg/execcontext/...;./pkg/generated/...;./pkg/network/...;./pkg/vmm/...;./pkg/v1alpha1/...", "rbac:roleName=shaper", "output:rbac:dir=charts/shaper/templates/rbac"]
+          args: ["run", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0", "paths=./cmd/shaper-api/...;./cmd/shaper-controller/...;./cmd/shaper-tftp/...;./cmd/shaper-webhook/...;./internal/...;./pkg/cloudinit/...;./pkg/constants/...;./pkg/execcontext/...;./pkg/generated/...;./pkg/network/...;./pkg/v1alpha1/...", "rbac:roleName=shaper", "output:rbac:dir=charts/shaper/templates/rbac"]
       - engine: go://generic-builder
         spec:
           command: "go"
-          args: ["run", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0", "paths=./cmd/shaper-api/...;./cmd/shaper-controller/...;./cmd/shaper-tftp/...;./cmd/shaper-webhook/...;./internal/...;./pkg/cloudinit/...;./pkg/constants/...;./pkg/execcontext/...;./pkg/generated/...;./pkg/network/...;./pkg/vmm/...;./pkg/v1alpha1/...", "rbac:roleName=shaper-webhook", "webhook", "output:rbac:dir=charts/shaper-webhooks/templates", "output:webhook:dir=charts/shaper-webhooks/templates"]
+          args: ["run", "sigs.k8s.io/controller-tools/cmd/controller-gen@v0.19.0", "paths=./cmd/shaper-api/...;./cmd/shaper-controller/...;./cmd/shaper-tftp/...;./cmd/shaper-webhook/...;./internal/...;./pkg/cloudinit/...;./pkg/constants/...;./pkg/execcontext/...;./pkg/generated/...;./pkg/network/...;./pkg/v1alpha1/...", "rbac:roleName=shaper-webhook", "webhook", "output:rbac:dir=charts/shaper-webhooks/templates", "output:webhook:dir=charts/shaper-webhooks/templates"]
       - engine: go://generic-builder
         spec:
           command: "go"
@@ -239,7 +220,18 @@ engines:
           args: ["-rf", "./internal/util/mocks"]
       - engine: go://go-gen-mocks
 
-  - alias: testenv-integration
+  - alias: e2e-test
+    type: test-runner
+    testRunner:
+      - engine: go://generic-test-runner
+        spec:
+          command: "./test/e2e/main.sh"
+          args: ["full-test"]
+          env:
+            CGO_ENABLED: "1"
+
+  # E2E test environment (shared with integration tests)
+  - alias: e2e-testenv
     type: testenv
     testenv:
       - engine: go://testenv-kind
@@ -296,53 +288,12 @@ engines:
                 imagePullSecrets:
                   - name: testenv-lcr-credentials
 
-  - alias: e2e-test
-    type: test-runner
-    testRunner:
-      - engine: go://generic-test-runner
-        spec:
-          command: "./test/e2e/main.sh"
-          args: ["full-test"]
-          env:
-            CGO_ENABLED: "1"
-
-  # E2E test environment (orchestrates setup)
-  # Note: The shaper-e2e-testenv binary (VMs, bridges, dnsmasq) is NOT integrated
-  # with forge testenv because it requires an MCP server implementation.
-  # E2E tests that need VM infrastructure should use a separate setup approach.
-  - alias: e2e-testenv
-    type: testenv
-    testenv:
-      - engine: go://testenv-kind
-      - engine: go://testenv-lcr
-        spec:
-          enabled: true
-          namespace: testenv-lcr
-          imagePullSecretName: testenv-lcr-credentials
-          imagePullSecretNamespaces:
-            - default
-            - shaper-system
-          images:
-            - name: local://shaper-api:latest
-            - name: local://shaper-controller:latest
-            - name: local://shaper-webhook:latest
-      - engine: go://testenv-helm-install
-        spec:
-          charts:
-            - name: shaper-crds
-              sourceType: local
-              path: ./charts/shaper-crds
-              namespace: default
-              releaseName: shaper-crds
-              createNamespace: false
-              timeout: "5m"
-
             - name: shaper-api
               sourceType: local
               path: ./charts/shaper-api
               namespace: shaper-system
               releaseName: shaper-api
-              createNamespace: true
+              createNamespace: false
               timeout: "5m"
               values:
                 image:
@@ -351,15 +302,54 @@ engines:
                   pullPolicy: IfNotPresent
                 imagePullSecrets:
                   - name: testenv-lcr-credentials
-
-  # E2E test runner (executes scenarios)
-  - alias: e2e-runner
-    type: test-runner
-    testRunner:
-      - engine: go://generic-test-runner
+      # VM infrastructure for E2E testing
+      - engine: go://github.com/alexandremahdhaoui/testenv-vm/cmd/testenv-vm@v0.6.1
+        deferTemplates: true
         spec:
-          command: "./test/e2e/main.sh"
-          args: ["run-scenario"]
-          env:
-            CGO_ENABLED: "1"
+          # Use /tmp for state directory so libvirt can access disk images
+          stateDir: /tmp/shaper-testenv-vm
+          providers:
+            - name: libvirt
+              engine: go://github.com/alexandremahdhaoui/testenv-vm/cmd/providers/testenv-vm-provider-libvirt@v0.6.1
+              default: true
+              spec: {}
 
+          keys:
+            - name: VmSsh
+              provider: libvirt
+              spec:
+                type: ed25519
+
+          networks:
+            - name: TestNetwork
+              kind: nat
+              provider: libvirt
+              spec:
+                cidr: "192.168.100.0/24"
+
+          vms:
+            - name: PxeClient
+              provider: libvirt
+              spec:
+                memory: 2048
+                vcpus: 2
+                network: TestNetwork
+                disk:
+                  baseImage: "/tmp/testenv-vm-images/ubuntu-24.04-server-cloudimg-amd64.img"
+                  size: 10G
+                cloudInit:
+                  hostname: pxe-client
+                  users:
+                    - name: ubuntu
+                      sudo: "ALL=(ALL) NOPASSWD:ALL"
+                      sshAuthorizedKeys:
+                        - "{{ .Keys.VmSsh.PublicKey }}"
+                boot:
+                  order: [hd]
+                  firmware: bios
+                readiness:
+                  ssh:
+                    enabled: true
+                    timeout: "5m"
+                    user: ubuntu
+                    privateKey: "{{ .Keys.VmSsh.PrivateKeyPath }}"

@@ -159,7 +159,7 @@ information.
 
 ### Binaries
 
-The project consists of 5 main binaries:
+The project consists of 4 main binaries:
 
 | Binary | Status | Description | Usage |
 |--------|--------|-------------|-------|
@@ -167,7 +167,6 @@ The project consists of 5 main binaries:
 | **shaper-webhook** | ✅ **IMPLEMENTED** | Kubernetes admission webhooks for validating and mutating Assignment and Profile CRDs | Production deployment for CRD validation |
 | **shaper-controller** | ❌ **TODO** | Kubernetes controller for CRD reconciliation (placeholder only) | Future: Manage Profile status and generate UUIDs for exposed content |
 | **shaper-tftp** | ❌ **TODO** | TFTP server for initial chainloading (not implemented) | Future: Serve initial iPXE bootloader via TFTP |
-| **shaper-e2e** | ✅ **IMPLEMENTED** | End-to-end testing binary with VM orchestration | Development/testing only |
 
 **Building Binaries:**
 ```shell
@@ -177,7 +176,6 @@ forge build
 # Build specific binary
 forge build shaper-api-binary
 forge build shaper-webhook-binary
-forge build shaper-e2e-binary
 
 # Binaries are output to ./build/bin/
 ```

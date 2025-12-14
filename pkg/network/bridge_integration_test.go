@@ -1,4 +1,18 @@
-//go:build integration
+//go:build e2e
+
+// Copyright 2024 Alexandre Mahdhaoui
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package network_test
 
@@ -31,7 +45,7 @@ func TestCreateBridge_Integration(t *testing.T) {
 	// Create bridge
 	err := mgr.Create(ctx, config)
 	require.NoError(t, err)
-	defer mgr.Delete(ctx, bridgeName)
+	defer func() { _ = mgr.Delete(ctx, bridgeName) }()
 
 	// Verify bridge exists using Get
 	info, err := mgr.Get(ctx, bridgeName)
@@ -56,7 +70,7 @@ func TestCreateBridge_Idempotent_Integration(t *testing.T) {
 	// Create bridge first time
 	err := mgr.Create(ctx, config)
 	require.NoError(t, err)
-	defer mgr.Delete(ctx, bridgeName)
+	defer func() { _ = mgr.Delete(ctx, bridgeName) }()
 
 	// Create bridge second time - should not error (idempotent)
 	err = mgr.Create(ctx, config)
@@ -121,7 +135,7 @@ func TestBridgeGet_Integration(t *testing.T) {
 	// Create bridge
 	err = mgr.Create(ctx, config)
 	require.NoError(t, err)
-	defer mgr.Delete(ctx, bridgeName)
+	defer func() { _ = mgr.Delete(ctx, bridgeName) }()
 
 	// After creation - should exist and return info
 	info, err := mgr.Get(ctx, bridgeName)

@@ -1,20 +1,18 @@
-//go:build integration
+//go:build e2e
 
-/*
-Copyright 2024 Alexandre Mahdhaoui
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-	http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+// Copyright 2024 Alexandre Mahdhaoui
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package webhook_test
 
@@ -42,9 +40,7 @@ const testTimeout = 30 * time.Second
 
 // TestAssignmentValidation tests validation of Assignment CRDs
 func TestAssignmentValidation(t *testing.T) {
-	if os.Getenv("KUBECONFIG") == "" {
-		t.Skip("KUBECONFIG not set, skipping integration test")
-	}
+	require.NotEmpty(t, os.Getenv("KUBECONFIG"), "KUBECONFIG must be set by forge testenv")
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -53,9 +49,7 @@ func TestAssignmentValidation(t *testing.T) {
 	defer cleanupAssignments(t, cl)
 	defer cleanupProfiles(t, cl)
 
-	if !webhooksDeployed(t, cl) {
-		t.Skip("shaper webhooks not deployed, skipping validation test")
-	}
+	require.True(t, webhooksDeployed(t, cl), "shaper-webhooks must be deployed by forge testenv")
 
 	// Create the test-profile that assignments reference
 	_ = createTestProfile(t, cl, ctx)
@@ -114,9 +108,7 @@ func TestAssignmentValidation(t *testing.T) {
 
 // TestAssignmentMutation tests mutation (defaulting) of Assignment CRDs
 func TestAssignmentMutation(t *testing.T) {
-	if os.Getenv("KUBECONFIG") == "" {
-		t.Skip("KUBECONFIG not set, skipping integration test")
-	}
+	require.NotEmpty(t, os.Getenv("KUBECONFIG"), "KUBECONFIG must be set by forge testenv")
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -125,9 +117,7 @@ func TestAssignmentMutation(t *testing.T) {
 	defer cleanupAssignments(t, cl)
 	defer cleanupProfiles(t, cl)
 
-	if !webhooksDeployed(t, cl) {
-		t.Skip("shaper webhooks not deployed, skipping mutation test")
-	}
+	require.True(t, webhooksDeployed(t, cl), "shaper-webhooks must be deployed by forge testenv")
 
 	// Create the test-profile that assignments reference
 	_ = createTestProfile(t, cl, ctx)
@@ -168,9 +158,7 @@ func TestAssignmentMutation(t *testing.T) {
 
 // TestProfileValidation tests validation of Profile CRDs
 func TestProfileValidation(t *testing.T) {
-	if os.Getenv("KUBECONFIG") == "" {
-		t.Skip("KUBECONFIG not set, skipping integration test")
-	}
+	require.NotEmpty(t, os.Getenv("KUBECONFIG"), "KUBECONFIG must be set by forge testenv")
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -178,9 +166,7 @@ func TestProfileValidation(t *testing.T) {
 	cl := newTestClient(t)
 	defer cleanupProfiles(t, cl)
 
-	if !webhooksDeployed(t, cl) {
-		t.Skip("shaper webhooks not deployed, skipping validation test")
-	}
+	require.True(t, webhooksDeployed(t, cl), "shaper-webhooks must be deployed by forge testenv")
 
 	tests := []struct {
 		name        string
@@ -224,9 +210,7 @@ func TestProfileValidation(t *testing.T) {
 
 // TestProfileMutation tests mutation (defaulting) of Profile CRDs
 func TestProfileMutation(t *testing.T) {
-	if os.Getenv("KUBECONFIG") == "" {
-		t.Skip("KUBECONFIG not set, skipping integration test")
-	}
+	require.NotEmpty(t, os.Getenv("KUBECONFIG"), "KUBECONFIG must be set by forge testenv")
 
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
@@ -234,9 +218,7 @@ func TestProfileMutation(t *testing.T) {
 	cl := newTestClient(t)
 	defer cleanupProfiles(t, cl)
 
-	if !webhooksDeployed(t, cl) {
-		t.Skip("shaper webhooks not deployed, skipping mutation test")
-	}
+	require.True(t, webhooksDeployed(t, cl), "shaper-webhooks must be deployed by forge testenv")
 
 	profile := loadProfileFixture(t, "valid-profile-mutation.yaml")
 
