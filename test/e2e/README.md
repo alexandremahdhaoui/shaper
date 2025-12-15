@@ -1,121 +1,61 @@
-# Shaper E2E Tests
+# E2E Tests
 
-End-to-end tests for Shaper's iPXE boot flow using libvirt VMs and KIND Kubernetes clusters.
+**Validate Shaper's complete iPXE boot flow with real VMs**
 
-## Overview
+End-to-end tests verify DHCP, TFTP, HTTP, Assignment matching, and Profile rendering.
 
-This E2E testing infrastructure validates Shaper's complete iPXE network boot flow:
+## Contents
 
-1. **DHCP**: Client VM obtains IP address from dnsmasq
-2. **TFTP**: Client fetches iPXE boot files via TFTP
-3. **HTTP**: iPXE chainloads to shaper-api for boot configuration
-4. **Assignment**: Shaper-api matches client (by MAC/UUID) to Assignment CRD
-5. **Profile**: Shaper-api returns appropriate Profile for the client
-6. **Boot**: Client boots with the configured OS image and settings
+- [Quick Start](#quick-start)
+- [How to debug?](#how-to-debug)
+- [Environment Variables](#environment-variables)
 
-## Running E2E Tests
-
-E2E tests are managed through the forge build system:
+## Quick Start
 
 ```bash
-# Run all E2E tests (creates testenv, runs tests, cleans up)
-forge test e2e run
+# Run all E2E tests
+forge test run e2e
 
-# Create test environment without running tests
-forge test e2e create
-
-# List existing test environments
-forge test e2e list
-
-# Delete a test environment
-forge test e2e delete <test-id>
+# Manage test environments
+forge test create-env e2e      # Create without running tests
+forge test list-env e2e        # List environments
+forge test delete-env e2e ID   # Delete by ID
 ```
 
-## Test Environment
+## How to debug?
 
-The forge testenv system automatically provisions:
+**Q: Permission denied for libvirt?**
+A: Add user to group: `sudo usermod -aG libvirt $USER`
 
-- **KIND Cluster**: Local Kubernetes cluster with shaper components deployed
-- **Linux Bridge**: Layer 2 network bridge for VM connectivity
-- **Libvirt Network**: Virtual network attached to the bridge
-- **Dnsmasq**: DHCP/TFTP server for PXE boot
-- **Client VM**: Test VM that performs network boot
+**Q: KIND cluster not starting?**
+A: Verify Docker is running: `docker ps`
 
-### Environment Variables
+**Q: Tests skip with "could not set up port-forward"?**
+A: Ensure shaper-api is deployed: `kubectl -n shaper-system get pods`
 
-When running tests, forge sets these environment variables:
+**Q: How to check VM status?**
+A: Use virsh: `virsh list --all`
+
+**Q: How to check network?**
+A: Use virsh: `virsh net-list --all`
+
+## Environment Variables
+
+Variables set by `forge test run e2e`:
 
 | Variable | Description |
 |----------|-------------|
-| `TESTENV_VM_PXECLIENT_IP` | IP address of the PXE client VM |
-| `TESTENV_KEY_VMSSH_PRIVATE_PATH` | Path to SSH private key |
-| `TESTENV_NETWORK_TESTBRIDGE_IP` | Bridge gateway IP |
-| `KUBECONFIG` | Path to KIND cluster kubeconfig |
+| `TESTENV_VM_PXECLIENT_IP` | PXE client VM IP address |
+| `TESTENV_KEY_VMSSH_PRIVATE_PATH` | SSH private key path |
+| `TESTENV_NETWORK_TESTNETWORK_IP` | Network gateway IP |
+| `KUBECONFIG` | KIND cluster kubeconfig |
 
-## Prerequisites
+## Test Files
 
-### System Requirements
+- `test/e2e/ipxe_boot_test.go` - Main E2E tests
+- `pkg/test/e2e/testenv_config.go` - Config loader
 
-- **Operating System**: Linux (Ubuntu 22.04+ or equivalent)
-- **Privileges**: Root/sudo access required for network and VM operations
-- **CPU**: Multi-core recommended
-- **Memory**: 8GB+ RAM recommended
-- **Disk**: 20GB+ free space
+## Links
 
-### Required Software
-
-```bash
-# Virtualization
-sudo apt-get install -y \
-    libvirt-daemon-system \
-    libvirt-clients \
-    qemu-kvm \
-    virtinst
-
-# Networking
-sudo apt-get install -y \
-    dnsmasq \
-    bridge-utils
-
-# Kubernetes (Docker + KIND + kubectl)
-# See https://kind.sigs.k8s.io/docs/user/quick-start/
-```
-
-### User Permissions
-
-Add your user to required groups:
-
-```bash
-sudo usermod -aG libvirt $USER
-sudo usermod -aG docker $USER
-```
-
-## Test Structure
-
-- `test/e2e/ipxe_boot_test.go` - Main E2E test file
-- `test/e2e/assets/` - Test assets (TFTP files, configs)
-- `pkg/test/e2e/testenv_config.go` - Testenv configuration loader
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Permission denied for libvirt**: Ensure user is in `libvirt` group
-2. **KIND cluster not starting**: Check Docker is running
-3. **Network bridge issues**: May require sudo for network operations
-
-### Debug Commands
-
-```bash
-# Check KIND cluster
-kubectl --kubeconfig=/tmp/test-kubeconfig get nodes
-
-# Check bridge
-ip link show
-
-# Check libvirt networks
-virsh net-list --all
-
-# Check dnsmasq
-ps aux | grep dnsmasq
-```
+- [Main README](../../README.md)
+- [Architecture](../../ARCHITECTURE.md)
