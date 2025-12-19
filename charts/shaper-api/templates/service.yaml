@@ -25,6 +25,9 @@ spec:
       targetPort: api
       protocol: TCP
       name: api
+      {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePort }}
+      nodePort: {{ .Values.service.nodePort }}
+      {{- end }}
     - port: {{ .Values.config.metricsServer.port }}
       targetPort: metrics
       protocol: TCP

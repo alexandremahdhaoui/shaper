@@ -94,6 +94,17 @@ func (r *AssignmentReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 	}
 
+	// Add default assignment label if isDefault is true
+	if assignment.Spec.IsDefault {
+		labelKey := v1alpha1.DefaultAssignmentLabel
+		if _, exists := assignment.Labels[labelKey]; !exists {
+			assignment.Labels[labelKey] = ""
+			needsUpdate = true
+			log.Info("Added default assignment label",
+				"labelKey", labelKey)
+		}
+	}
+
 	// Update if labels were added (idempotent)
 	if needsUpdate {
 		if err := r.Update(ctx, &assignment); err != nil {

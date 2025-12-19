@@ -77,6 +77,8 @@ securityContext: {}
 service:
   type: ClusterIP
   port: 80
+  # Set when type is NodePort to use a specific port (e.g., 30080)
+  nodePort: ""
 
 ingress:
   enabled: false

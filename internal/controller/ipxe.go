@@ -205,6 +205,7 @@ chain ipxe?%s
 type ipxeParamType string
 
 var (
+	// orderedAllowedParamKeys defines which parameters to include in the boot.ipxe chain URL.
 	orderedAllowedParamKeys = []string{
 		types.Uuid,
 		types.Buildarch,

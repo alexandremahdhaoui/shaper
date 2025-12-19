@@ -225,9 +225,12 @@ func main() {
 		nil, // TODO: prometheus middleware
 	))
 
+	// Wrap with ClientIPMiddleware to inject client IP into context for logging
+	handlerWithMiddleware := server.ClientIPMiddleware(shaperHandler)
+
 	shaperServer := &http.Server{ //nolint:exhaustruct
 		Addr:              fmt.Sprintf(":%d", config.APIServer.Port),
-		Handler:           shaperHandler,
+		Handler:           handlerWithMiddleware,
 		ReadHeaderTimeout: time.Second,
 		// TODO: set fields etc...
 	}

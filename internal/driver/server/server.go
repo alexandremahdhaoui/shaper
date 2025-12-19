@@ -60,7 +60,9 @@ func (s *server) GetContentByID(
 
 	attributes := types.IPXESelectors{
 		Buildarch: string(request.Params.Buildarch),
-		UUID:      request.Params.Uuid,
+	}
+	if request.Params.Uuid != nil {
+		attributes.UUID = *request.Params.Uuid
 	}
 
 	// call controller
@@ -87,13 +89,17 @@ func (s *server) GetIPXEBySelectors(
 	// TODO: use params instead of converting the echo context?
 	selectors := types.IPXESelectors{
 		Buildarch: string(request.Params.Buildarch),
-		UUID:      request.Params.Uuid,
+	}
+	if request.Params.Uuid != nil {
+		selectors.UUID = *request.Params.Uuid
 	}
 
-	// Log iPXE boot request
-	// Note: remote_addr not available in oapi-codegen generated handler signature
-	// Would require middleware to inject into context
+	// Get client IP from context (set by ClientIPMiddleware)
+	clientIP := GetClientIP(ctx)
+
+	// Log iPXE boot request with client IP for E2E test verification
 	slog.InfoContext(ctx, "ipxe_boot_request",
+		"client_ip", clientIP,
 		"uuid", selectors.UUID,
 		"buildarch", selectors.Buildarch,
 	)

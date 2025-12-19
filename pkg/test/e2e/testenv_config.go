@@ -104,30 +104,26 @@ func loadFromEnv() (*TestenvConfig, error) {
 	var missing []string
 
 	// Load VM configuration (name: PxeClient in forge.yaml)
+	// Note: VMPXEClientIP is optional for tests that create runtime VMs
 	cfg.VMPXEClientIP = os.Getenv("TESTENV_VM_PXECLIENT_IP")
-	if cfg.VMPXEClientIP == "" {
-		missing = append(missing, "TESTENV_VM_PXECLIENT_IP")
-	}
+	// IP is optional - tests may create runtime VMs dynamically
 
 	cfg.VMPXEClientMAC = os.Getenv("TESTENV_VM_PXECLIENT_MAC")
 	// MAC is optional
 
 	// Load SSH key (name: VmSsh in forge.yaml)
+	// Note: SSH key is optional for PXE boot tests (VMs don't have SSH)
 	cfg.SSHKeyPath = os.Getenv("TESTENV_KEY_VMSSH_PRIVATE_PATH")
-	if cfg.SSHKeyPath == "" {
-		missing = append(missing, "TESTENV_KEY_VMSSH_PRIVATE_PATH")
-	}
+	// SSH key is optional - PXE boot VMs don't use SSH
 
 	// Load network configuration (name: TestNetwork in forge.yaml)
 	cfg.BridgeIP = os.Getenv("TESTENV_NETWORK_TESTNETWORK_IP")
-	if cfg.BridgeIP == "" {
-		missing = append(missing, "TESTENV_NETWORK_TESTNETWORK_IP")
-	}
+	// Bridge IP is optional - used for debugging only
 
 	cfg.BridgeInterface = os.Getenv("TESTENV_NETWORK_TESTNETWORK_INTERFACE")
 	// Interface name is optional
 
-	// Load Kubernetes config
+	// Load Kubernetes config - this is required
 	cfg.Kubeconfig = os.Getenv("KUBECONFIG")
 	if cfg.Kubeconfig == "" {
 		missing = append(missing, "KUBECONFIG")
@@ -233,17 +229,10 @@ func loadFromStateFile() (*TestenvConfig, error) {
 		}
 	}
 
-	// Validate required fields
+	// Validate required fields - only Kubeconfig is truly required
+	// VMPXEClientIP, SSHKeyPath, BridgeIP are optional for PXE boot tests
+	// that create runtime VMs dynamically
 	var missing []string
-	if cfg.VMPXEClientIP == "" {
-		missing = append(missing, "VMPXEClientIP")
-	}
-	if cfg.SSHKeyPath == "" {
-		missing = append(missing, "SSHKeyPath")
-	}
-	if cfg.BridgeIP == "" {
-		missing = append(missing, "BridgeIP")
-	}
 	if cfg.Kubeconfig == "" {
 		missing = append(missing, "Kubeconfig")
 	}

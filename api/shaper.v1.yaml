@@ -140,7 +140,7 @@ components:
       name: uuid
       schema:
         $ref: '#/components/schemas/UUID'
-      required: true
+      required: false
 
     # -------------------------------------------------------- buildarchSelector ------------------------------------- #
     buildarchSelector:

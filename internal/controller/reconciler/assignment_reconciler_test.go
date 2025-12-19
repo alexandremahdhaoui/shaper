@@ -170,6 +170,75 @@ func TestAssignmentReconciler_Reconcile(t *testing.T) {
 			},
 			expectedError: false, // Should not error, just skip invalid UUID
 		},
+		{
+			name: "Assignment with isDefault true - should add default-assignment label",
+			assignment: &v1alpha1.Assignment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-assignment",
+					Namespace: "default",
+				},
+				Spec: v1alpha1.AssignmentSpec{
+					ProfileName: "test-profile",
+					IsDefault:   true,
+					SubjectSelectors: v1alpha1.SubjectSelectors{
+						BuildarchList: []v1alpha1.Buildarch{v1alpha1.X8664},
+					},
+				},
+			},
+			expectUpdate: true,
+			expectedLabels: map[string]string{
+				v1alpha1.X8664BuildarchLabelSelector: "",
+				v1alpha1.DefaultAssignmentLabel:      "",
+			},
+			expectedError: false,
+		},
+		{
+			name: "Assignment with isDefault false - should NOT add default-assignment label",
+			assignment: &v1alpha1.Assignment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-assignment",
+					Namespace: "default",
+				},
+				Spec: v1alpha1.AssignmentSpec{
+					ProfileName: "test-profile",
+					IsDefault:   false,
+					SubjectSelectors: v1alpha1.SubjectSelectors{
+						BuildarchList: []v1alpha1.Buildarch{v1alpha1.X8664},
+					},
+				},
+			},
+			expectUpdate: true,
+			expectedLabels: map[string]string{
+				v1alpha1.X8664BuildarchLabelSelector: "",
+			},
+			expectedError: false,
+		},
+		{
+			name: "Assignment with isDefault true and existing label - should be idempotent",
+			assignment: &v1alpha1.Assignment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-assignment",
+					Namespace: "default",
+					Labels: map[string]string{
+						v1alpha1.X8664BuildarchLabelSelector: "",
+						v1alpha1.DefaultAssignmentLabel:      "",
+					},
+				},
+				Spec: v1alpha1.AssignmentSpec{
+					ProfileName: "test-profile",
+					IsDefault:   true,
+					SubjectSelectors: v1alpha1.SubjectSelectors{
+						BuildarchList: []v1alpha1.Buildarch{v1alpha1.X8664},
+					},
+				},
+			},
+			expectUpdate: false,
+			expectedLabels: map[string]string{
+				v1alpha1.X8664BuildarchLabelSelector: "",
+				v1alpha1.DefaultAssignmentLabel:      "",
+			},
+			expectedError: false,
+		},
 	}
 
 	for _, tt := range tests {

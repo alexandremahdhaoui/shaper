@@ -25,6 +25,7 @@ build/*
 .kindenv.kubeconfig.yaml
 .tmp*
 
+/bin
 .envrc
 **/.ai/*
 tmp/*
@@ -33,3 +34,4 @@ tmp/*
 /test/shaper-kubeconfig
 /shaper-controller
 test/e2e/assets/tftp/*.kpxe
+

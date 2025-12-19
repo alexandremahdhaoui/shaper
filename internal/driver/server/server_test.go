@@ -110,7 +110,7 @@ hostname: test-host`)
 		name              string
 		contentID         uuid.UUID
 		buildarch         shaperserver.GetContentByIDParamsBuildarch
-		uuid              uuid.UUID
+		uuid              *uuid.UUID
 		mockReturnContent []byte
 		expectedBody      []byte
 	}{
@@ -118,7 +118,7 @@ hostname: test-host`)
 			name:              "valid ignition config with x86_64",
 			contentID:         contentUUID1,
 			buildarch:         shaperserver.GetContentByIDParamsBuildarchX8664,
-			uuid:              testUUID,
+			uuid:              &testUUID,
 			mockReturnContent: ignitionConfig,
 			expectedBody:      ignitionConfig,
 		},
@@ -126,7 +126,7 @@ hostname: test-host`)
 			name:              "valid cloud-init config with arm64",
 			contentID:         contentUUID2,
 			buildarch:         shaperserver.GetContentByIDParamsBuildarchArm64,
-			uuid:              testUUID,
+			uuid:              &testUUID,
 			mockReturnContent: cloudInitConfig,
 			expectedBody:      cloudInitConfig,
 		},
@@ -134,7 +134,7 @@ hostname: test-host`)
 			name:              "empty content with i386",
 			contentID:         contentUUID3,
 			buildarch:         shaperserver.GetContentByIDParamsBuildarchI386,
-			uuid:              testUUID,
+			uuid:              &testUUID,
 			mockReturnContent: []byte{},
 			expectedBody:      []byte{},
 		},
@@ -142,7 +142,7 @@ hostname: test-host`)
 			name:              "content with arm32",
 			contentID:         contentUUID4,
 			buildarch:         shaperserver.GetContentByIDParamsBuildarchArm32,
-			uuid:              testUUID,
+			uuid:              &testUUID,
 			mockReturnContent: []byte("test content"),
 			expectedBody:      []byte("test content"),
 		},
@@ -159,7 +159,11 @@ hostname: test-host`)
 				mock.Anything, // context
 				tt.contentID,
 				mock.MatchedBy(func(attrs types.IPXESelectors) bool {
-					return attrs.Buildarch == string(tt.buildarch) && attrs.UUID == tt.uuid
+					expectedUUID := uuid.UUID{}
+					if tt.uuid != nil {
+						expectedUUID = *tt.uuid
+					}
+					return attrs.Buildarch == string(tt.buildarch) && attrs.UUID == expectedUUID
 				}),
 			).Return(tt.mockReturnContent, nil)
 
@@ -203,7 +207,7 @@ func TestGetContentByID_Error(t *testing.T) {
 		name              string
 		contentID         uuid.UUID
 		buildarch         shaperserver.GetContentByIDParamsBuildarch
-		uuid              uuid.UUID
+		uuid              *uuid.UUID
 		mockReturnContent []byte
 		mockReturnError   error
 		errorContains     string
@@ -212,7 +216,7 @@ func TestGetContentByID_Error(t *testing.T) {
 			name:              "controller returns generic error",
 			contentID:         contentUUID,
 			buildarch:         shaperserver.GetContentByIDParamsBuildarchX8664,
-			uuid:              testUUID,
+			uuid:              &testUUID,
 			mockReturnContent: nil,
 			mockReturnError:   assert.AnError,
 			errorContains:     "getting config by id",
@@ -221,7 +225,7 @@ func TestGetContentByID_Error(t *testing.T) {
 			name:              "controller returns context canceled",
 			contentID:         contentUUID,
 			buildarch:         shaperserver.GetContentByIDParamsBuildarchArm64,
-			uuid:              testUUID,
+			uuid:              &testUUID,
 			mockReturnContent: nil,
 			mockReturnError:   context.Canceled,
 			errorContains:     "getting config by id",
@@ -239,7 +243,11 @@ func TestGetContentByID_Error(t *testing.T) {
 				mock.Anything, // context
 				tt.contentID,
 				mock.MatchedBy(func(attrs types.IPXESelectors) bool {
-					return attrs.Buildarch == string(tt.buildarch) && attrs.UUID == tt.uuid
+					expectedUUID := uuid.UUID{}
+					if tt.uuid != nil {
+						expectedUUID = *tt.uuid
+					}
+					return attrs.Buildarch == string(tt.buildarch) && attrs.UUID == expectedUUID
 				}),
 			).Return(tt.mockReturnContent, tt.mockReturnError)
 
@@ -281,35 +289,35 @@ func TestGetIPXEBySelectors_Success(t *testing.T) {
 	tests := []struct {
 		name             string
 		buildarch        shaperserver.GetIPXEBySelectorsParamsBuildarch
-		uuid             uuid.UUID
+		uuid             *uuid.UUID
 		mockReturnScript []byte
 		expectedBody     []byte
 	}{
 		{
 			name:             "valid iPXE script with UUID and x86_64",
 			buildarch:        shaperserver.X8664,
-			uuid:             testUUID,
+			uuid:             &testUUID,
 			mockReturnScript: []byte("#!ipxe\nkernel http://example.com/vmlinuz\nboot"),
 			expectedBody:     []byte("#!ipxe\nkernel http://example.com/vmlinuz\nboot"),
 		},
 		{
 			name:             "valid iPXE script with arm64",
 			buildarch:        shaperserver.Arm64,
-			uuid:             testUUID,
+			uuid:             &testUUID,
 			mockReturnScript: []byte("#!ipxe\nchain http://boot.example.com"),
 			expectedBody:     []byte("#!ipxe\nchain http://boot.example.com"),
 		},
 		{
 			name:             "empty script with i386",
 			buildarch:        shaperserver.I386,
-			uuid:             testUUID,
+			uuid:             &testUUID,
 			mockReturnScript: []byte(""),
 			expectedBody:     []byte(""),
 		},
 		{
 			name:      "complex multiline script with arm32",
 			buildarch: shaperserver.Arm32,
-			uuid:      testUUID,
+			uuid:      &testUUID,
 			mockReturnScript: []byte(`#!ipxe
 set base-url http://boot.example.com
 kernel ${base-url}/vmlinuz
@@ -333,7 +341,11 @@ boot`),
 			mockIPXE.EXPECT().FindProfileAndRender(
 				mock.Anything, // context
 				mock.MatchedBy(func(selectors types.IPXESelectors) bool {
-					return selectors.Buildarch == string(tt.buildarch) && selectors.UUID == tt.uuid
+					expectedUUID := uuid.UUID{}
+					if tt.uuid != nil {
+						expectedUUID = *tt.uuid
+					}
+					return selectors.Buildarch == string(tt.buildarch) && selectors.UUID == expectedUUID
 				}),
 			).Return(tt.mockReturnScript, nil)
 
@@ -374,7 +386,7 @@ func TestGetIPXEBySelectors_Error(t *testing.T) {
 	tests := []struct {
 		name             string
 		buildarch        shaperserver.GetIPXEBySelectorsParamsBuildarch
-		uuid             uuid.UUID
+		uuid             *uuid.UUID
 		mockReturnScript []byte
 		mockReturnError  error
 		errorContains    string
@@ -382,7 +394,7 @@ func TestGetIPXEBySelectors_Error(t *testing.T) {
 		{
 			name:             "generic controller error",
 			buildarch:        shaperserver.X8664,
-			uuid:             testUUID,
+			uuid:             &testUUID,
 			mockReturnScript: nil,
 			mockReturnError:  assert.AnError,
 			errorContains:    "getting ipxe by labels",
@@ -390,7 +402,7 @@ func TestGetIPXEBySelectors_Error(t *testing.T) {
 		{
 			name:             "context canceled",
 			buildarch:        shaperserver.Arm64,
-			uuid:             testUUID,
+			uuid:             &testUUID,
 			mockReturnScript: nil,
 			mockReturnError:  context.Canceled,
 			errorContains:    "getting ipxe by labels",
@@ -407,7 +419,11 @@ func TestGetIPXEBySelectors_Error(t *testing.T) {
 			mockIPXE.EXPECT().FindProfileAndRender(
 				mock.Anything, // context
 				mock.MatchedBy(func(selectors types.IPXESelectors) bool {
-					return selectors.Buildarch == string(tt.buildarch) && selectors.UUID == tt.uuid
+					expectedUUID := uuid.UUID{}
+					if tt.uuid != nil {
+						expectedUUID = *tt.uuid
+					}
+					return selectors.Buildarch == string(tt.buildarch) && selectors.UUID == expectedUUID
 				}),
 			).Return(tt.mockReturnScript, tt.mockReturnError)
 

@@ -296,21 +296,27 @@ engines:
               createNamespace: false
               timeout: "5m"
               values:
+                config:
+                  assignmentNamespace: shaper-system
+                  profileNamespace: shaper-system
                 image:
                   repository: "{{.Env.TESTENV_LCR_FQDN}}/shaper-api"
                   tag: latest
                   pullPolicy: IfNotPresent
                 imagePullSecrets:
                   - name: testenv-lcr-credentials
+                service:
+                  type: NodePort
+                  nodePort: 30080
       # VM infrastructure for E2E testing
-      - engine: go://github.com/alexandremahdhaoui/testenv-vm/cmd/testenv-vm@v0.6.1
+      - engine: go://github.com/alexandremahdhaoui/testenv-vm/cmd/testenv-vm@v0.7.5
         deferTemplates: true
         spec:
           # Use /tmp for state directory so libvirt can access disk images
           stateDir: /tmp/shaper-testenv-vm
           providers:
             - name: libvirt
-              engine: go://github.com/alexandremahdhaoui/testenv-vm/cmd/providers/testenv-vm-provider-libvirt@v0.6.1
+              engine: go://github.com/alexandremahdhaoui/testenv-vm/cmd/providers/testenv-vm-provider-libvirt@v0.7.5
               default: true
               spec: {}
 
@@ -326,19 +332,70 @@ engines:
               provider: libvirt
               spec:
                 cidr: "192.168.100.0/24"
+                # Disable libvirt's built-in DHCP so dnsmasq can provide DHCP with PXE options
+                dhcp:
+                  enabled: false
 
           vms:
-            - name: PxeClient
+            - name: DnsmasqServer
               provider: libvirt
               spec:
-                memory: 2048
-                vcpus: 2
+                memory: 512
+                vcpus: 1
                 network: TestNetwork
                 disk:
                   baseImage: "/tmp/testenv-vm-images/ubuntu-24.04-server-cloudimg-amd64.img"
-                  size: 10G
+                  size: 5G
                 cloudInit:
-                  hostname: pxe-client
+                  hostname: dnsmasq-server
+                  # Static network config - applied before any cloud-init modules run
+                  networkConfig:
+                    ethernets:
+                      - name: ens2
+                        addresses:
+                          - "192.168.100.2/24"
+                        gateway4: "192.168.100.1"
+                        nameservers:
+                          addresses:
+                            - "8.8.8.8"
+                  packages:
+                    - dnsmasq
+                    - curl
+                  writeFiles:
+                    - path: /etc/dnsmasq.conf
+                      content: |
+                        interface=ens2
+                        bind-interfaces
+                        dhcp-range=192.168.100.50,192.168.100.200,12h
+                        server=8.8.8.8
+                        server=8.8.4.4
+                        # DNS resolution for shaper.local -> bridge gateway (where shaper-api is accessible)
+                        address=/shaper.local/192.168.100.1
+                        enable-tftp
+                        tftp-root=/var/lib/tftpboot
+                        # Serve custom iPXE with embedded script - no chainloading needed
+                        dhcp-boot=undionly.kpxe
+                      permissions: "0644"
+                    # Custom iPXE embedded script that chainloads to shaper.local
+                    - path: /tmp/embed.ipxe
+                      content: |
+                        #!ipxe
+                        dhcp
+                        chain http://shaper.local:30080/ipxe?uuid=${uuid}&buildarch=${buildarch:uristring}
+                      permissions: "0644"
+                  runcmd:
+                    - "systemctl disable --now systemd-resolved"
+                    - "rm -f /etc/resolv.conf"
+                    - "echo 'nameserver 8.8.8.8' > /etc/resolv.conf"
+                    - "mkdir -p /var/lib/tftpboot"
+                    # Build custom iPXE with embedded script
+                    # Using v1.21.1 tag to avoid build issues with latest HEAD
+                    - "apt-get update && apt-get install -y git make gcc binutils perl liblzma-dev"
+                    - "git clone --depth 1 --branch v1.21.1 https://github.com/ipxe/ipxe.git /tmp/ipxe"
+                    - "cp /tmp/embed.ipxe /tmp/ipxe/src/embed.ipxe"
+                    - "cd /tmp/ipxe/src && make bin/undionly.kpxe EMBED=embed.ipxe NO_WERROR=1"
+                    - "cp /tmp/ipxe/src/bin/undionly.kpxe /var/lib/tftpboot/undionly.kpxe"
+                    - "systemctl restart dnsmasq"
                   users:
                     - name: ubuntu
                       sudo: "ALL=(ALL) NOPASSWD:ALL"
@@ -353,3 +410,18 @@ engines:
                     timeout: "5m"
                     user: ubuntu
                     privateKey: "{{ .Keys.VmSsh.PrivateKeyPath }}"
+
+            - name: PxeClient
+              provider: libvirt
+              spec:
+                memory: 2048
+                vcpus: 2
+                network: TestNetwork
+                disk:
+                  size: 1G
+                boot:
+                  order: [network]
+                  firmware: bios
+                readiness:
+                  ssh:
+                    enabled: false
