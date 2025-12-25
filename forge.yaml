@@ -309,14 +309,14 @@ engines:
                   type: NodePort
                   nodePort: 30080
       # VM infrastructure for E2E testing
-      - engine: go://github.com/alexandremahdhaoui/testenv-vm/cmd/testenv-vm@v0.7.5
+      - engine: go://github.com/alexandremahdhaoui/testenv-vm/cmd/testenv-vm@v0.8.2
         deferTemplates: true
         spec:
           # Use /tmp for state directory so libvirt can access disk images
           stateDir: /tmp/shaper-testenv-vm
           providers:
             - name: libvirt
-              engine: go://github.com/alexandremahdhaoui/testenv-vm/cmd/providers/testenv-vm-provider-libvirt@v0.7.5
+              engine: go://github.com/alexandremahdhaoui/testenv-vm/cmd/providers/testenv-vm-provider-libvirt@v0.8.2
               default: true
               spec: {}
 
