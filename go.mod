@@ -3,7 +3,7 @@ module github.com/alexandremahdhaoui/shaper
 go 1.25.0
 
 require (
-	github.com/coreos/butane v0.25.1
+	github.com/coreos/butane v0.26.0
 	github.com/getkin/kin-openapi v0.133.0
 	github.com/go-logr/logr v1.4.3
 	github.com/google/uuid v1.6.0
