@@ -49,6 +49,10 @@ type TestenvConfig struct {
 
 	// Kubernetes
 	Kubeconfig string
+
+	// ProjectRoot is the absolute path to the project root directory.
+	// This is used to locate Helm charts and other project resources.
+	ProjectRoot string
 }
 
 // testenvVMState represents the structure of the testenv-vm state file
@@ -133,6 +137,9 @@ func loadFromEnv() (*TestenvConfig, error) {
 		return cfg, errors.Join(ErrEnvVarNotSet,
 			errors.New("missing: "+strings.Join(missing, ", ")))
 	}
+
+	// Find project root
+	cfg.ProjectRoot = findProjectRoot()
 
 	return cfg, nil
 }
@@ -241,7 +248,58 @@ func loadFromStateFile() (*TestenvConfig, error) {
 		return cfg, errors.New("missing fields from state file: " + strings.Join(missing, ", "))
 	}
 
+	// Find project root
+	cfg.ProjectRoot = findProjectRoot()
+
 	return cfg, nil
+}
+
+// findProjectRoot finds the project root directory by looking for go.mod file.
+// It searches upward from the current working directory.
+func findProjectRoot() string {
+	// Try PROJECT_ROOT environment variable first
+	if root := os.Getenv("PROJECT_ROOT"); root != "" {
+		return root
+	}
+
+	// Get current working directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+
+	// Walk up the directory tree looking for go.mod
+	dir := cwd
+	for {
+		goModPath := filepath.Join(dir, "go.mod")
+		if _, err := os.Stat(goModPath); err == nil {
+			return dir
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Reached root, not found
+			break
+		}
+		dir = parent
+	}
+
+	// Fallback: try common locations relative to state dir
+	stateDir := os.Getenv("TESTENV_VM_STATE_DIR")
+	if stateDir != "" {
+		// State dir is typically /path/to/project/.forge/tmp/...
+		// Navigate up to find project root
+		dir := stateDir
+		for i := 0; i < 10; i++ {
+			goModPath := filepath.Join(dir, "go.mod")
+			if _, err := os.Stat(goModPath); err == nil {
+				return dir
+			}
+			dir = filepath.Dir(dir)
+		}
+	}
+
+	return ""
 }
 
 // getVMIPFromLibvirt queries libvirt to get the VM's IP address

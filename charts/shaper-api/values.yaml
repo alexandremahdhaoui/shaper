@@ -80,6 +80,37 @@ service:
   # Set when type is NodePort to use a specific port (e.g., 30080)
   nodePort: ""
 
+# TLS configuration for enabling HTTPS with optional mutual TLS (mTLS)
+tls:
+  # Enable TLS/HTTPS for the API server
+  enabled: false
+  # Client authentication mode: "none", "request", "require"
+  # - none: No client certificate required
+  # - request: Request client certificate but don't require it
+  # - require: Require and verify client certificate (mTLS)
+  clientAuth: "none"
+  # Server certificate configuration
+  cert:
+    secretRef:
+      # Name of the Kubernetes secret containing the server certificate
+      name: ""
+      # Key in the secret containing the certificate
+      key: "tls.crt"
+  # Server private key configuration
+  key:
+    secretRef:
+      # Name of the Kubernetes secret containing the server private key
+      name: ""
+      # Key in the secret containing the private key
+      key: "tls.key"
+  # CA certificate for client verification (required when clientAuth != "none")
+  ca:
+    secretRef:
+      # Name of the Kubernetes secret containing the CA certificate
+      name: ""
+      # Key in the secret containing the CA certificate
+      key: "ca.crt"
+
 ingress:
   enabled: false
   className: ""

@@ -314,6 +314,10 @@ engines:
         spec:
           # Use /tmp for state directory so libvirt can access disk images
           stateDir: /tmp/shaper-testenv-vm
+          images:
+            - name: ubuntu
+              spec:
+                source: ubuntu:24.04
           providers:
             - name: libvirt
               engine: go://github.com/alexandremahdhaoui/testenv-vm/cmd/providers/testenv-vm-provider-libvirt@v0.8.2
@@ -344,7 +348,7 @@ engines:
                 vcpus: 1
                 network: TestNetwork
                 disk:
-                  baseImage: "/tmp/testenv-vm-images/ubuntu-24.04-server-cloudimg-amd64.img"
+                  baseImage: "{{ .Images.ubuntu.Path }}"
                   size: 5G
                 cloudInit:
                   hostname: dnsmasq-server
@@ -371,6 +375,7 @@ engines:
                         server=8.8.4.4
                         # DNS resolution for shaper.local -> bridge gateway (where shaper-api is accessible)
                         address=/shaper.local/192.168.100.1
+                        address=/shaper-api.local/192.168.100.1
                         enable-tftp
                         tftp-root=/var/lib/tftpboot
                         # Serve custom iPXE with embedded script - no chainloading needed
@@ -389,9 +394,10 @@ engines:
                     - "echo 'nameserver 8.8.8.8' > /etc/resolv.conf"
                     - "mkdir -p /var/lib/tftpboot"
                     # Build custom iPXE with embedded script
-                    # Using v1.21.1 tag to avoid build issues with latest HEAD
+                    # Using master branch commit that includes SMBIOS 3.0 support (required for QEMU 8.1+)
+                    # The SMBIOS 3.0 fix was merged on 2023-12-29 (commit fa622132)
                     - "apt-get update && apt-get install -y git make gcc binutils perl liblzma-dev"
-                    - "git clone --depth 1 --branch v1.21.1 https://github.com/ipxe/ipxe.git /tmp/ipxe"
+                    - "git clone https://github.com/ipxe/ipxe.git /tmp/ipxe && cd /tmp/ipxe && git checkout fa62213231a882eb6bbcefa7ad1106bdb9aaeae2"
                     - "cp /tmp/embed.ipxe /tmp/ipxe/src/embed.ipxe"
                     - "cd /tmp/ipxe/src && make bin/undionly.kpxe EMBED=embed.ipxe NO_WERROR=1"
                     - "cp /tmp/ipxe/src/bin/undionly.kpxe /var/lib/tftpboot/undionly.kpxe"

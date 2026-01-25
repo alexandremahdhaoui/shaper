@@ -19,6 +19,7 @@ package certutil_test
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"net"
 	"testing"
 	"time"
 
@@ -241,6 +242,183 @@ func TestCA_NewCertifiedKeyPEM(t *testing.T) {
 
 			// Verify certificate contains the domains
 			assert.Equal(t, tt.domains, cert.DNSNames, "certificate should have correct DNSNames")
+
+			// Verify certificate is not a CA
+			assert.False(t, cert.IsCA, "certificate should not be marked as CA")
+
+			// Verify certificate can be verified with CA pool
+			opts := x509.VerifyOptions{
+				DNSName: tt.domains[0],
+				Roots:   ca.Pool(),
+			}
+			chains, err := cert.Verify(opts)
+			assert.NoError(t, err, "certificate should be verifiable with CA pool")
+			assert.NotEmpty(t, chains, "should have at least one valid chain")
+		})
+	}
+}
+
+// TestCA_NewCertifiedKeyWithIPs verifies that NewCertifiedKeyWithIPs() generates certificates
+// with both DNS SANs and IP SANs signed by the CA.
+func TestCA_NewCertifiedKeyWithIPs(t *testing.T) {
+	tests := []struct {
+		name    string
+		domains []string
+		ips     []net.IP
+	}{
+		{
+			name:    "single domain and single IP",
+			domains: []string{"example.com"},
+			ips:     []net.IP{net.ParseIP("192.168.100.1")},
+		},
+		{
+			name:    "multiple domains and multiple IPs",
+			domains: []string{"example.com", "*.example.com"},
+			ips:     []net.IP{net.ParseIP("192.168.100.1"), net.ParseIP("10.0.0.1")},
+		},
+		{
+			name:    "only IPs no domains",
+			domains: []string{},
+			ips:     []net.IP{net.ParseIP("192.168.100.1")},
+		},
+		{
+			name:    "only domains no IPs",
+			domains: []string{"example.com"},
+			ips:     []net.IP{},
+		},
+		{
+			name:    "IPv6 address",
+			domains: []string{"example.com"},
+			ips:     []net.IP{net.ParseIP("::1"), net.ParseIP("192.168.100.1")},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create CA
+			ca, err := certutil.NewCA()
+			require.NoError(t, err)
+			require.NotNil(t, ca)
+
+			// Generate certified key with IPs
+			key, cert, err := ca.NewCertifiedKeyWithIPs(tt.domains, tt.ips)
+			require.NoError(t, err, "NewCertifiedKeyWithIPs should not return error")
+			require.NotNil(t, key, "private key should not be nil")
+			require.NotNil(t, cert, "certificate should not be nil")
+
+			// Verify certificate DNSNames
+			// Note: When domains is empty, the certificate may have nil DNSNames
+			if len(tt.domains) == 0 {
+				assert.Empty(t, cert.DNSNames, "certificate should have empty DNSNames")
+			} else {
+				assert.Equal(t, tt.domains, cert.DNSNames, "certificate should have correct DNSNames")
+			}
+
+			// Verify certificate IPAddresses
+			require.Len(t, cert.IPAddresses, len(tt.ips), "certificate should have correct number of IPAddresses")
+			for i, expectedIP := range tt.ips {
+				assert.True(t, cert.IPAddresses[i].Equal(expectedIP),
+					"certificate IPAddresses[%d] should be %v, got %v", i, expectedIP, cert.IPAddresses[i])
+			}
+
+			// Verify certificate is not a CA
+			assert.False(t, cert.IsCA, "certificate should not be marked as CA")
+
+			// Verify key usage
+			assert.Equal(t, x509.KeyUsageDigitalSignature, cert.KeyUsage, "should have digital signature key usage")
+
+			// Verify extended key usage
+			assert.Contains(t, cert.ExtKeyUsage, x509.ExtKeyUsageClientAuth, "should have client auth")
+			assert.Contains(t, cert.ExtKeyUsage, x509.ExtKeyUsageServerAuth, "should have server auth")
+
+			// Verify certificate is signed by CA using IP address verification
+			if len(tt.ips) > 0 {
+				opts := x509.VerifyOptions{
+					Roots: ca.Pool(),
+				}
+				chains, err := cert.Verify(opts)
+				assert.NoError(t, err, "certificate should be verifiable with CA pool")
+				assert.NotEmpty(t, chains, "should have at least one valid chain")
+			}
+
+			// Verify certificate is signed by CA using DNS name verification
+			if len(tt.domains) > 0 {
+				opts := x509.VerifyOptions{
+					DNSName: tt.domains[0],
+					Roots:   ca.Pool(),
+				}
+				chains, err := cert.Verify(opts)
+				assert.NoError(t, err, "certificate should be verifiable with CA pool using DNS name")
+				assert.NotEmpty(t, chains, "should have at least one valid chain")
+			}
+		})
+	}
+}
+
+// TestCA_NewCertifiedKeyWithIPsPEM verifies that NewCertifiedKeyWithIPsPEM() returns
+// certificate and key with IP SANs in PEM format.
+func TestCA_NewCertifiedKeyWithIPsPEM(t *testing.T) {
+	tests := []struct {
+		name    string
+		domains []string
+		ips     []net.IP
+	}{
+		{
+			name:    "single domain and single IP",
+			domains: []string{"test.example.com"},
+			ips:     []net.IP{net.ParseIP("192.168.100.1")},
+		},
+		{
+			name:    "multiple domains and multiple IPs",
+			domains: []string{"test.example.com", "*.test.example.com"},
+			ips:     []net.IP{net.ParseIP("192.168.100.1"), net.ParseIP("10.0.0.1")},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create CA
+			ca, err := certutil.NewCA()
+			require.NoError(t, err)
+			require.NotNil(t, ca)
+
+			// Generate certified key with IPs in PEM format
+			keyPEM, certPEM, err := ca.NewCertifiedKeyWithIPsPEM(tt.domains, tt.ips)
+			require.NoError(t, err, "NewCertifiedKeyWithIPsPEM should not return error")
+			assert.NotEmpty(t, keyPEM, "key PEM should not be empty")
+			assert.NotEmpty(t, certPEM, "cert PEM should not be empty")
+
+			// Decode and verify key PEM
+			keyBlock, keyRest := pem.Decode(keyPEM)
+			require.NotNil(t, keyBlock, "key PEM decoding should succeed")
+			assert.Empty(t, keyRest, "should have consumed all key PEM bytes")
+			assert.Equal(t, "PRIVATE KEY", keyBlock.Type, "PEM block type should be PRIVATE KEY")
+
+			// Parse private key
+			privKey, err := x509.ParsePKCS8PrivateKey(keyBlock.Bytes)
+			require.NoError(t, err, "private key parsing should succeed")
+			assert.NotNil(t, privKey, "parsed private key should not be nil")
+
+			// Decode and verify cert PEM
+			certBlock, certRest := pem.Decode(certPEM)
+			require.NotNil(t, certBlock, "cert PEM decoding should succeed")
+			assert.Empty(t, certRest, "should have consumed all cert PEM bytes")
+			assert.Equal(t, "CERTIFICATE", certBlock.Type, "PEM block type should be CERTIFICATE")
+
+			// Parse certificate
+			cert, err := x509.ParseCertificate(certBlock.Bytes)
+			require.NoError(t, err, "certificate parsing should succeed")
+			require.NotNil(t, cert, "parsed certificate should not be nil")
+
+			// Verify certificate contains the domains
+			assert.Equal(t, tt.domains, cert.DNSNames, "certificate should have correct DNSNames")
+
+			// Verify certificate contains the IPs
+			require.Len(t, cert.IPAddresses, len(tt.ips), "certificate should have correct number of IPAddresses")
+			for i, expectedIP := range tt.ips {
+				assert.True(t, cert.IPAddresses[i].Equal(expectedIP),
+					"certificate IPAddresses[%d] should be %v, got %v", i, expectedIP, cert.IPAddresses[i])
+			}
 
 			// Verify certificate is not a CA
 			assert.False(t, cert.IsCA, "certificate should not be marked as CA")

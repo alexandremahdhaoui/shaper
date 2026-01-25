@@ -16,6 +16,7 @@ package server
 
 import (
 	"context"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -74,4 +75,20 @@ func GetClientIP(ctx context.Context) string {
 		return ip
 	}
 	return ""
+}
+
+// TLSLoggingMiddleware logs successful mTLS connections.
+// When a client presents a valid certificate, it logs the client's CN, issuer, and serial number.
+func TLSLoggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+			clientCert := r.TLS.PeerCertificates[0]
+			slog.Info("tls_client_connected",
+				"client_cn", clientCert.Subject.CommonName,
+				"client_issuer", clientCert.Issuer.CommonName,
+				"client_serial", clientCert.SerialNumber.String(),
+			)
+		}
+		next.ServeHTTP(w, r)
+	})
 }

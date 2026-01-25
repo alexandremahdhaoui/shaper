@@ -35,6 +35,8 @@ var (
 	ErrPodLogsGet = errors.New("failed to get pod logs")
 	// ErrIPXERequestNotFound indicates no iPXE request was found in logs.
 	ErrIPXERequestNotFound = errors.New("iPXE request not found in logs")
+	// ErrTLSClientConnectedNotFound indicates no tls_client_connected log was found.
+	ErrTLSClientConnectedNotFound = errors.New("tls_client_connected log not found")
 )
 
 const (
@@ -80,6 +82,23 @@ type profileMatchedLog struct {
 type assignmentSelectedLog struct {
 	AssignmentName string `json:"assignment_name"`
 	Message        string `json:"msg"`
+}
+
+// TLSClientLog represents a parsed tls_client_connected log entry.
+// This is logged when a client presents a valid certificate during mTLS handshake.
+type TLSClientLog struct {
+	// ClientCN is the Common Name from the client certificate.
+	ClientCN string `json:"client_cn"`
+	// ClientIssuer is the Common Name of the certificate issuer.
+	ClientIssuer string `json:"client_issuer"`
+	// ClientSerial is the serial number of the client certificate.
+	ClientSerial string `json:"client_serial"`
+	// Timestamp is when the connection was logged.
+	Timestamp time.Time `json:"time"`
+	// Message is the log message type (should be "tls_client_connected").
+	Message string `json:"msg"`
+	// Level is the log level.
+	Level string `json:"level"`
 }
 
 // GetShaperAPIPodName finds the shaper-api pod name in the shaper-system namespace.
@@ -540,4 +559,73 @@ func WaitForIPXERequestByBuildarch(
 
 	return nil, errors.Join(ErrIPXERequestNotFound,
 		errors.New("timeout waiting for iPXE request with buildarch: "+buildarch))
+}
+
+// FindTLSClientConnectedLog searches logs for a tls_client_connected log entry with the given client CN.
+// This verifies that a client with the expected certificate CN successfully completed mTLS handshake.
+func FindTLSClientConnectedLog(logs, clientCN string) (*TLSClientLog, error) {
+	lines := strings.Split(logs, "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Try to parse as JSON
+		var logEntry TLSClientLog
+		if err := json.Unmarshal([]byte(line), &logEntry); err != nil {
+			continue
+		}
+
+		// Check if this is a tls_client_connected log entry
+		if logEntry.Message != "tls_client_connected" {
+			continue
+		}
+
+		// Check if the client CN matches
+		if logEntry.ClientCN == clientCN {
+			return &logEntry, nil
+		}
+	}
+
+	return nil, errors.Join(ErrTLSClientConnectedNotFound,
+		errors.New("no tls_client_connected log found for client CN: "+clientCN))
+}
+
+// WaitForTLSClientConnected polls logs until a tls_client_connected log with the given client CN is found.
+// This verifies that a client with the expected certificate successfully completed mTLS handshake.
+func WaitForTLSClientConnected(
+	ctx context.Context,
+	kubeconfig, namespace, podName, clientCN string,
+	since time.Time,
+	timeout time.Duration,
+) (*TLSClientLog, error) {
+	deadline := time.Now().Add(timeout)
+	pollInterval := 2 * time.Second
+
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		logs, err := GetPodLogs(ctx, kubeconfig, namespace, podName, since)
+		if err != nil {
+			// Log error but continue polling
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		result, err := FindTLSClientConnectedLog(logs, clientCN)
+		if err == nil {
+			return result, nil
+		}
+
+		time.Sleep(pollInterval)
+	}
+
+	return nil, errors.Join(ErrTLSClientConnectedNotFound,
+		errors.New("timeout waiting for tls_client_connected with client CN: "+clientCN))
 }

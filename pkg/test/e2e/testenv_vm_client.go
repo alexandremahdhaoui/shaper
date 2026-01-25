@@ -55,6 +55,9 @@ type VMSpec struct {
 	Firmware string
 	// AutoStart determines whether the VM should start automatically after creation
 	AutoStart bool
+	// CDROMPath is the optional path to an ISO file to attach as a CDROM device.
+	// When set, the CDROM is configured as the primary boot device (boot order 1).
+	CDROMPath string
 }
 
 // VMClient manages VMs using virsh commands.
@@ -370,6 +373,15 @@ const vmXMLTemplate = `<domain type='kvm'>
   <clock offset='utc'/>
   <devices>
     <emulator>/usr/bin/qemu-system-x86_64</emulator>
+{{- if .CDROMPath }}
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source file='{{ .CDROMPath }}'/>
+      <target dev='hdc' bus='ide'/>
+      <readonly/>
+      <boot order='1'/>
+    </disk>
+{{- end }}
     <interface type='network'>
       <source network='{{ .Network }}'/>
 {{- if .HasNetworkBoot }}
@@ -424,6 +436,7 @@ func (c *VMClient) generateVMXML(name string, spec VMSpec) (string, error) {
 		Firmware       string
 		HasNetworkBoot bool
 		ConsolePath    string
+		CDROMPath      string
 	}{
 		Name:           name,
 		UUID:           vmUUID.String(),
@@ -434,6 +447,7 @@ func (c *VMClient) generateVMXML(name string, spec VMSpec) (string, error) {
 		Firmware:       spec.Firmware,
 		HasNetworkBoot: hasNetworkBoot,
 		ConsolePath:    consolePath,
+		CDROMPath:      spec.CDROMPath,
 	}
 
 	var buf strings.Builder

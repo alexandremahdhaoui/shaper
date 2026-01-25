@@ -77,6 +77,19 @@ spec:
             - name: config
               mountPath: /etc/shaper
               readOnly: true
+            {{- if .Values.tls.enabled }}
+            - name: tls-cert
+              mountPath: /etc/shaper/tls/cert
+              readOnly: true
+            - name: tls-key
+              mountPath: /etc/shaper/tls/key
+              readOnly: true
+            {{- if ne .Values.tls.clientAuth "none" }}
+            - name: tls-ca
+              mountPath: /etc/shaper/tls/ca
+              readOnly: true
+            {{- end }}
+            {{- end }}
             {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -84,6 +97,28 @@ spec:
         - name: config
           configMap:
             name: {{ include "shaper-api.fullname" . }}-config
+        {{- if .Values.tls.enabled }}
+        - name: tls-cert
+          secret:
+            secretName: {{ .Values.tls.cert.secretRef.name }}
+            items:
+              - key: {{ .Values.tls.cert.secretRef.key }}
+                path: tls.crt
+        - name: tls-key
+          secret:
+            secretName: {{ .Values.tls.key.secretRef.name }}
+            items:
+              - key: {{ .Values.tls.key.secretRef.key }}
+                path: tls.key
+        {{- if ne .Values.tls.clientAuth "none" }}
+        - name: tls-ca
+          secret:
+            secretName: {{ .Values.tls.ca.secretRef.name }}
+            items:
+              - key: {{ .Values.tls.ca.secretRef.key }}
+                path: ca.crt
+        {{- end }}
+        {{- end }}
         {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

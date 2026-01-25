@@ -40,7 +40,14 @@ func Serve(servers map[string]*http.Server, gs *gracefulshutdown.GracefulShutdow
 		gs.WaitGroup().Add(1)
 
 		go func() {
-			if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			var err error
+			if server.TLSConfig != nil {
+				// Use ListenAndServeTLS with empty strings since TLSConfig has certs
+				err = server.ListenAndServeTLS("", "")
+			} else {
+				err = server.ListenAndServe()
+			}
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
 				slog.ErrorContext(ctx, "❌ received error", "error", err)
 
 				// we need to call Done() before requesting the shutdown. Otherwise, the WaitGroup will never decrement.

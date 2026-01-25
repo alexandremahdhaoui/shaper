@@ -23,6 +23,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"net"
 	"time"
 )
 
@@ -132,6 +133,61 @@ func (ca *CA) NewCertifiedKey(domains ...string) (*ecdsa.PrivateKey, *x509.Certi
 // NewCertifiedKeyPEM creates a new certified key in PEM format.
 func (ca *CA) NewCertifiedKeyPEM(domains ...string) (key []byte, cert []byte, err error) {
 	k, c, err := ca.NewCertifiedKey(domains...)
+	if err != nil {
+		return nil, nil, err // TODO: wrap err
+	}
+
+	keyPEM, err := privateKeyToPem(k)
+	if err != nil {
+		return nil, nil, err // TODO: wrap err
+	}
+
+	return keyPEM, certToPEM(c), nil
+}
+
+// NewCertifiedKeyWithIPs creates a new certified key with both DNS names and IP SANs.
+func (ca *CA) NewCertifiedKeyWithIPs(
+	domains []string,
+	ips []net.IP,
+) (*ecdsa.PrivateKey, *x509.Certificate, error) {
+	crtTemplate := &x509.Certificate{
+		Subject: pkix.Name{
+			Organization: []string{"Use in test only!"},
+		},
+
+		DNSNames:     domains,
+		IPAddresses:  ips,
+		SerialNumber: big.NewInt(123),
+		NotBefore:    time.Now().Add(-1 * time.Hour),
+		NotAfter:     time.Now().Add(2 * time.Hour),
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}
+
+	key, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
+	if err != nil {
+		return nil, nil, err // TODO: wrap err
+	}
+
+	signedRaw, err := x509.CreateCertificate(rand.Reader, crtTemplate, ca.rootCert, key.Public(), ca.key)
+	if err != nil {
+		return nil, nil, err // TODO: wrap err
+	}
+
+	signed, err := x509.ParseCertificate(signedRaw)
+	if err != nil {
+		return nil, nil, err // TODO: wrap err
+	}
+
+	return key, signed, nil
+}
+
+// NewCertifiedKeyWithIPsPEM creates a new certified key with both DNS names and IP SANs in PEM format.
+func (ca *CA) NewCertifiedKeyWithIPsPEM(
+	domains []string,
+	ips []net.IP,
+) (key []byte, cert []byte, err error) {
+	k, c, err := ca.NewCertifiedKeyWithIPs(domains, ips)
 	if err != nil {
 		return nil, nil, err // TODO: wrap err
 	}

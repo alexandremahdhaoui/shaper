@@ -20,4 +20,12 @@ metadata:
     {{- include "shaper-api.labels" . | nindent 4 }}
 data:
   config.json: |
-    {{ .Values.config | toJson | nindent 4 }}
+    {{- $config := .Values.config | deepCopy }}
+    {{- if .Values.tls.enabled }}
+    {{- $tlsConfig := dict "enabled" true "clientAuth" .Values.tls.clientAuth "certPath" "/etc/shaper/tls/cert/tls.crt" "keyPath" "/etc/shaper/tls/key/tls.key" }}
+    {{- if ne .Values.tls.clientAuth "none" }}
+    {{- $_ := set $tlsConfig "caPath" "/etc/shaper/tls/ca/ca.crt" }}
+    {{- end }}
+    {{- $_ := set $config "tls" $tlsConfig }}
+    {{- end }}
+    {{ $config | toJson | nindent 4 }}

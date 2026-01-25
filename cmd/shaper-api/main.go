@@ -15,14 +15,17 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/alexandremahdhaoui/shaper/internal/util/httputil"
+	"github.com/alexandremahdhaoui/shaper/internal/util/tlsutil"
 	"github.com/alexandremahdhaoui/shaper/pkg/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -111,6 +114,21 @@ type Config struct {
 		// Port is the port for the API server.
 		Port int `json:"port"`
 	} `json:"apiServer"`
+
+	// TLS is the configuration for TLS/mTLS support.
+	TLS struct {
+		// Enabled enables TLS for the API server.
+		Enabled bool `json:"enabled,omitempty"`
+		// ClientAuth specifies the client authentication policy.
+		// Valid values: "none", "request", "require".
+		ClientAuth string `json:"clientAuth,omitempty"`
+		// CertPath is the path to the server certificate file.
+		CertPath string `json:"certPath,omitempty"`
+		// KeyPath is the path to the server private key file.
+		KeyPath string `json:"keyPath,omitempty"`
+		// CAPath is the path to the CA certificate file for client verification.
+		CAPath string `json:"caPath,omitempty"`
+	} `json:"tls,omitempty"`
 }
 
 // ------------------------------------------------- Main ----------------------------------------------------------- //
@@ -150,6 +168,24 @@ func main() {
 	if err = json.Unmarshal(b, config); err != nil {
 		slog.ErrorContext(ctx, "parsing shaper-api configuration", "error", err.Error())
 		gs.Shutdown(1)
+	}
+
+	// --------------------------------------------- TLS ------------------------------------------------------------ //
+
+	tlsConfig, err := tlsutil.BuildTLSConfig(&tlsutil.Config{
+		Enabled:    config.TLS.Enabled,
+		ClientAuth: config.TLS.ClientAuth,
+		CertPath:   config.TLS.CertPath,
+		KeyPath:    config.TLS.KeyPath,
+		CAPath:     config.TLS.CAPath,
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "building TLS configuration", "error", err.Error())
+		gs.Shutdown(1)
+	}
+
+	if tlsConfig != nil {
+		slog.Info("TLS enabled for API server", "clientAuth", config.TLS.ClientAuth)
 	}
 
 	// --------------------------------------------- Client --------------------------------------------------------- //
@@ -228,11 +264,31 @@ func main() {
 	// Wrap with ClientIPMiddleware to inject client IP into context for logging
 	handlerWithMiddleware := server.ClientIPMiddleware(shaperHandler)
 
+	// Wrap with TLSLoggingMiddleware when TLS is enabled to log mTLS client connections
+	if tlsConfig != nil {
+		handlerWithMiddleware = server.TLSLoggingMiddleware(handlerWithMiddleware)
+	}
+
 	shaperServer := &http.Server{ //nolint:exhaustruct
-		Addr:              fmt.Sprintf(":%d", config.APIServer.Port),
-		Handler:           handlerWithMiddleware,
-		ReadHeaderTimeout: time.Second,
-		// TODO: set fields etc...
+		Addr:    fmt.Sprintf(":%d", config.APIServer.Port),
+		Handler: handlerWithMiddleware,
+		// ReadHeaderTimeout is also used as the TLS handshake timeout (since Go 1.18).
+		// iPXE requires ~7 seconds to compute RSA client certificate verification with
+		// 2048-bit keys, so we need a timeout that accommodates this slow operation.
+		// Setting to 30 seconds provides headroom for slower embedded devices.
+		ReadHeaderTimeout: 30 * time.Second,
+		TLSConfig:         tlsConfig,
+		// Disable HTTP/2 for iPXE compatibility. iPXE does not support HTTP/2 and
+		// Go's net/http auto-configures HTTP/2 unless explicitly disabled.
+		// Setting TLSNextProto to an empty map prevents HTTP/2 auto-configuration.
+		TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler)),
+		// ConnState logs connection state changes for debugging TLS issues.
+		ConnState: func(conn net.Conn, state http.ConnState) {
+			slog.Info("conn_state_change",
+				"remote_addr", conn.RemoteAddr().String(),
+				"state", state.String(),
+			)
+		},
 	}
 
 	// --------------------------------------------- Metrics -------------------------------------------------------- //

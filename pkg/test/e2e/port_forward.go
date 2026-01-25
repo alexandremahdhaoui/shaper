@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -210,4 +211,60 @@ func SetupGlobalPortForwardWithWait(kubeconfig string, timeout time.Duration) (*
 	}
 
 	return pf, nil
+}
+
+// SetupMTLSPortForward sets up kubectl port-forward for mTLS testing.
+// It forwards localPort on 0.0.0.0 to the shaper-api service on servicePort.
+// This is necessary because VMs need to reach the mTLS endpoint via the bridge IP.
+func SetupMTLSPortForward(kubeconfig string, localPort, servicePort int) (*PortForward, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Set up port-forward to API service for mTLS
+	// --address 0.0.0.0 makes it listen on all interfaces including 192.168.100.1
+	cmd := exec.CommandContext(ctx, "kubectl",
+		"--kubeconfig", kubeconfig,
+		"port-forward",
+		"--address", "0.0.0.0",
+		"-n", ShaperSystemNamespace,
+		"svc/shaper-api",
+		fmt.Sprintf("%d:%d", localPort, servicePort),
+	)
+
+	// Capture stderr for debugging
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Start(); err != nil {
+		cancel()
+		return nil, errors.Join(ErrPortForwardStart, err)
+	}
+
+	pf := &PortForward{
+		cmd:    cmd,
+		cancel: cancel,
+		Port:   localPort,
+		URL:    fmt.Sprintf("https://localhost:%d", localPort),
+	}
+
+	return pf, nil
+}
+
+// WaitForMTLSPortForwardReady waits for the mTLS port-forward to be ready by checking
+// if the port is accepting TCP connections. Unlike WaitForPortForwardReady, this
+// doesn't make HTTP requests since that would require valid TLS client certificates.
+func WaitForMTLSPortForwardReady(pf *PortForward, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	pollInterval := 100 * time.Millisecond
+
+	for time.Now().Before(deadline) {
+		// Try to connect to the port
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", pf.Port), 1*time.Second)
+		if err == nil {
+			_ = conn.Close()
+			return nil
+		}
+		time.Sleep(pollInterval)
+	}
+
+	return errors.Join(ErrPortForwardNotReady,
+		fmt.Errorf("mTLS port-forward not accepting connections on port %d after %v", pf.Port, timeout))
 }
