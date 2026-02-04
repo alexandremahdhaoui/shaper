@@ -37,6 +37,8 @@ var (
 	ErrIPXERequestNotFound = errors.New("iPXE request not found in logs")
 	// ErrTLSClientConnectedNotFound indicates no tls_client_connected log was found.
 	ErrTLSClientConnectedNotFound = errors.New("tls_client_connected log not found")
+	// ErrAssignmentSelectedNotFound indicates no assignment_selected log was found.
+	ErrAssignmentSelectedNotFound = errors.New("assignment_selected log not found")
 )
 
 const (
@@ -410,6 +412,107 @@ func WaitForIPXERequestByUUID(
 
 	return nil, errors.Join(ErrIPXERequestNotFound,
 		errors.New("timeout waiting for iPXE request with UUID: "+vmUUID))
+}
+
+// AssignmentSelectedLog represents a parsed assignment_selected log entry.
+// This is logged when an assignment is selected for a boot request.
+type AssignmentSelectedLog struct {
+	// AssignmentName is the name of the selected assignment.
+	AssignmentName string `json:"assignment_name"`
+	// AssignmentNamespace is the namespace of the selected assignment.
+	AssignmentNamespace string `json:"assignment_namespace"`
+	// MatchedBy indicates how the assignment was matched (e.g., "uuid", "default").
+	MatchedBy string `json:"matched_by"`
+	// Timestamp is when the selection was logged.
+	Timestamp time.Time `json:"time"`
+	// Message is the log message type (should be "assignment_selected").
+	Message string `json:"msg"`
+	// Level is the log level.
+	Level string `json:"level"`
+}
+
+// FindAssignmentSelectedByUUID searches logs for an assignment_selected log entry
+// that follows an ipxe_boot_request with the given UUID.
+// Returns the AssignmentSelectedLog with the matched_by field populated.
+func FindAssignmentSelectedByUUID(logs, vmUUID string) (*AssignmentSelectedLog, error) {
+	lines := strings.Split(logs, "\n")
+	foundIPXERequest := false
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Try to parse as JSON
+		var rawEntry map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &rawEntry); err != nil {
+			continue
+		}
+
+		msg, ok := rawEntry["msg"].(string)
+		if !ok {
+			continue
+		}
+
+		// First, find the ipxe_boot_request with matching UUID
+		if msg == "ipxe_boot_request" {
+			uuid, ok := rawEntry["uuid"].(string)
+			if ok && strings.EqualFold(uuid, vmUUID) {
+				foundIPXERequest = true
+			}
+			continue
+		}
+
+		// Then, find the assignment_selected that follows
+		if msg == "assignment_selected" && foundIPXERequest {
+			var logEntry AssignmentSelectedLog
+			if err := json.Unmarshal([]byte(line), &logEntry); err != nil {
+				continue
+			}
+			return &logEntry, nil
+		}
+	}
+
+	return nil, errors.Join(ErrAssignmentSelectedNotFound,
+		errors.New("no assignment_selected log found for UUID: "+vmUUID))
+}
+
+// WaitForAssignmentSelectedByUUID polls logs until an assignment_selected log
+// following an ipxe_boot_request with the given UUID is found.
+func WaitForAssignmentSelectedByUUID(
+	ctx context.Context,
+	kubeconfig, namespace, podName, vmUUID string,
+	since time.Time,
+	timeout time.Duration,
+) (*AssignmentSelectedLog, error) {
+	deadline := time.Now().Add(timeout)
+	pollInterval := 2 * time.Second
+
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		logs, err := GetPodLogs(ctx, kubeconfig, namespace, podName, since)
+		if err != nil {
+			// Log error but continue polling
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		result, err := FindAssignmentSelectedByUUID(logs, vmUUID)
+		if err == nil {
+			return result, nil
+		}
+
+		time.Sleep(pollInterval)
+	}
+
+	return nil, errors.Join(ErrAssignmentSelectedNotFound,
+		errors.New("timeout waiting for assignment_selected with UUID: "+vmUUID))
 }
 
 // FindProfileMatchedLog searches logs for a profile_matched log entry with the given profile name.

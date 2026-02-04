@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -787,10 +788,28 @@ shell`
 	require.NoError(t, err, "did not find profile_matched log entry for expected profile")
 	t.Logf("Found profile_matched: Profile=%s, Assignment=%s", result.ProfileName, result.AssignmentName)
 
-	// Step 9: Verify the correct profile was matched
+	// Step 9: Verify UUID in ipxe_boot_request log matches VM's SMBIOS UUID (Checkpoint 3)
+	t.Log("Verifying UUID in ipxe_boot_request log...")
+	ipxeRequest, err := e2e.WaitForIPXERequestByUUID(ctx, cfg.Kubeconfig, e2e.ShaperSystemNamespace,
+		podName, vmUUID.String(), startTime, 30*time.Second)
+	require.NoError(t, err, "failed to find ipxe_boot_request with VM UUID")
+	require.True(t, strings.EqualFold(ipxeRequest.UUID, vmUUID.String()),
+		"UUID in ipxe_boot_request (%s) does not match VM UUID (%s)", ipxeRequest.UUID, vmUUID.String())
+	t.Logf("Verified: ipxe_boot_request UUID matches VM UUID: %s", ipxeRequest.UUID)
+
+	// Step 10: Verify matched_by="uuid" in assignment_selected log (Checkpoint 4)
+	t.Log("Verifying matched_by=uuid in assignment_selected log...")
+	assignmentLog, err := e2e.WaitForAssignmentSelectedByUUID(ctx, cfg.Kubeconfig, e2e.ShaperSystemNamespace,
+		podName, vmUUID.String(), startTime, 30*time.Second)
+	require.NoError(t, err, "failed to find assignment_selected log for VM UUID")
+	require.Equal(t, "uuid", assignmentLog.MatchedBy,
+		"expected matched_by=uuid but got matched_by=%s (assignment was not matched by UUID)", assignmentLog.MatchedBy)
+	t.Logf("Verified: assignment matched_by=%s for assignment %s", assignmentLog.MatchedBy, assignmentLog.AssignmentName)
+
+	// Step 11: Verify the correct profile was matched
 	// The custom iPXE binary sends the VM's UUID, so the UUID-specific assignment should be matched.
 	// This test validates: 1) UUID assignment created, 2) API works with UUID, 3) VM boots with correct profile.
 	require.Equal(t, profileName, result.ProfileName, "expected profile_matched to contain our profile")
 
-	t.Log("✓ Test Case 2 PASSED: UUID-specific assignment boot flow verified")
+	t.Log("Test PASSED: UUID-specific assignment boot flow verified (UUID in request, matched_by=uuid, correct profile)")
 }
