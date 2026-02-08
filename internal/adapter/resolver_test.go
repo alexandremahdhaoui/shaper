@@ -18,6 +18,7 @@ package adapter_test
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"strings"
@@ -114,6 +115,82 @@ func TestObjectRefResolver(t *testing.T) {
 			actual, err := resolver.Resolve(ctx, content, ipxeSelectors)
 			assert.NoError(t, err)
 			assert.Equal(t, expected, actual)
+		})
+
+		t.Run("Secret_Base64Decode", func(t *testing.T) {
+			// When an ObjectRef targets a Secret's .data.* field, the value
+			// returned by the K8s API is base64-encoded. The resolver must
+			// decode it transparently.
+			ctx := context.Background()
+
+			plaintext := "Hello from Secret"
+			encoded := base64.StdEncoding.EncodeToString([]byte(plaintext))
+
+			secretContent := testutil.NewTypesContentObjectRef()
+			// Override to target a Secret resource
+			secretContent.ObjectRef.Resource = "secrets"
+			require.NoError(t, secretContent.ObjectRef.JSONPath.Parse("{.data.secretkey}"))
+
+			secretObj := &unstructured.Unstructured{}
+			secretObj.SetGroupVersionKind(schema.GroupVersionKind{
+				Group:   secretContent.ObjectRef.Group,
+				Version: secretContent.ObjectRef.Version,
+				Kind:    "Secret",
+			})
+			secretObj.SetName(secretContent.ObjectRef.Name)
+			secretObj.SetNamespace(secretContent.ObjectRef.Namespace)
+
+			secretCl := fake.NewSimpleDynamicClient(runtime.NewScheme(), secretObj)
+			secretCl.PrependReactor("get", "secrets", func(_ k8stesting.Action) (bool, runtime.Object, error) {
+				secretObj.SetUnstructuredContent(map[string]any{
+					"apiVersion": secretContent.ObjectRef.Version,
+					"kind":       "Secret",
+					"metadata": map[string]any{
+						"name":      secretContent.ObjectRef.Name,
+						"namespace": secretContent.ObjectRef.Namespace,
+					},
+					"data": map[string]any{
+						"secretkey": encoded,
+					},
+				})
+				return true, secretObj, nil
+			})
+
+			secretResolver := adapter.NewObjectRefResolver(secretCl)
+
+			actual, err := secretResolver.Resolve(ctx, secretContent, types.IPXESelectors{})
+			require.NoError(t, err)
+			assert.Equal(t, []byte(plaintext), actual, "Secret .data values should be base64-decoded")
+		})
+
+		t.Run("Secret_NonDataPath_NoDecoding", func(t *testing.T) {
+			// When a Secret ObjectRef targets a non-.data field (e.g. .metadata.name),
+			// the value should NOT be base64-decoded.
+			ctx := context.Background()
+
+			secretContent := testutil.NewTypesContentObjectRef()
+			secretContent.ObjectRef.Resource = "secrets"
+			require.NoError(t, secretContent.ObjectRef.JSONPath.Parse("{.metadata.name}"))
+
+			secretObj := &unstructured.Unstructured{}
+			secretObj.SetGroupVersionKind(schema.GroupVersionKind{
+				Group:   secretContent.ObjectRef.Group,
+				Version: secretContent.ObjectRef.Version,
+				Kind:    "Secret",
+			})
+			secretObj.SetName("my-secret")
+			secretObj.SetNamespace(secretContent.ObjectRef.Namespace)
+
+			secretCl := fake.NewSimpleDynamicClient(runtime.NewScheme(), secretObj)
+			secretCl.PrependReactor("get", "secrets", func(_ k8stesting.Action) (bool, runtime.Object, error) {
+				return true, secretObj, nil
+			})
+
+			secretResolver := adapter.NewObjectRefResolver(secretCl)
+
+			actual, err := secretResolver.Resolve(ctx, secretContent, types.IPXESelectors{})
+			require.NoError(t, err)
+			assert.Equal(t, []byte("my-secret"), actual, "Non-.data fields should not be decoded")
 		})
 	})
 }

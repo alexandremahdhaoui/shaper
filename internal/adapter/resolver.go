@@ -19,6 +19,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -136,6 +137,12 @@ func (r *objectRefResolver) ResolvePaths(
 		return nil, errors.Join(err, ErrObjectRefResolver)
 	}
 
+	// Kubernetes Secrets store .data values as base64-encoded strings in the API.
+	// Decode them in-place so JSONPath returns the actual plaintext values.
+	if ref.Resource == "secrets" {
+		decodeSecretData(obj.Object)
+	}
+
 	out := make([][]byte, 0)
 
 	for _, path := range paths {
@@ -148,6 +155,30 @@ func (r *objectRefResolver) ResolvePaths(
 	}
 
 	return out, nil
+}
+
+// decodeSecretData decodes base64-encoded values in a Secret's .data map in-place.
+// In the Kubernetes API, Secret.data values are base64-encoded strings. This function
+// decodes them so JSONPath evaluation returns the actual plaintext values.
+func decodeSecretData(obj map[string]interface{}) {
+	data, ok := obj["data"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	for key, val := range data {
+		str, ok := val.(string)
+		if !ok {
+			continue
+		}
+
+		decoded, err := base64.StdEncoding.DecodeString(str)
+		if err != nil {
+			continue
+		}
+
+		data[key] = string(decoded)
+	}
 }
 
 // ------------------------------------------------ WEBHOOK RESOLVER ------------------------------------------------ //

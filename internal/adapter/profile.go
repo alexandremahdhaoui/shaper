@@ -342,6 +342,13 @@ func (ipxev1a1) toBasicAuthObjectRef(
 var errConvertingStringToJSONPath = errors.New("converting string to JSONPath")
 
 func toJSONPath(s string) (*jsonpath.JSONPath, error) {
+	// The Kubernetes JSONPath library requires expressions to be wrapped in curly braces.
+	// Without braces, it returns the literal string instead of evaluating the path.
+	// For example: ".data.key" returns ".data.key", but "{.data.key}" returns the actual value.
+	if len(s) > 0 && s[0] != '{' {
+		s = "{" + s + "}"
+	}
+
 	jp := jsonpath.New("")
 	if err := jp.Parse(s); err != nil {
 		return nil, errors.Join(err, errConvertingStringToJSONPath)

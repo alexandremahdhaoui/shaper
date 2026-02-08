@@ -43,6 +43,8 @@ var (
 	ErrPortForwardStart = errors.New("failed to start port-forward")
 	// ErrPortForwardNotReady indicates the port-forward is not ready.
 	ErrPortForwardNotReady = errors.New("port-forward not ready")
+	// ErrContentFetch indicates a failure to fetch content from the /content/{uuid} endpoint.
+	ErrContentFetch = errors.New("failed to fetch content")
 )
 
 // PortForward represents an active kubectl port-forward process.
@@ -267,4 +269,34 @@ func WaitForMTLSPortForwardReady(pf *PortForward, timeout time.Duration) error {
 
 	return errors.Join(ErrPortForwardNotReady,
 		fmt.Errorf("mTLS port-forward not accepting connections on port %d after %v", pf.Port, timeout))
+}
+
+// FetchContent fetches content from the /content/{uuid} endpoint.
+// The buildarch parameter is required by the API.
+// Returns the response body bytes on 200 OK, or an error with status code on failure.
+func FetchContent(ctx context.Context, baseURL, uuid, buildarch string) ([]byte, error) {
+	url := fmt.Sprintf("%s/content/%s?buildarch=%s", baseURL, uuid, buildarch)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, errors.Join(ErrContentFetch, err)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, errors.Join(ErrContentFetch, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, errors.Join(ErrContentFetch, err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.Join(ErrContentFetch, fmt.Errorf("got status %d for %s", resp.StatusCode, url))
+	}
+
+	return body, nil
 }

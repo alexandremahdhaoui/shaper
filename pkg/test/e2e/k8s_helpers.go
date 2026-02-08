@@ -19,6 +19,8 @@ package e2e
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
@@ -41,6 +43,16 @@ var (
 	ErrAssignmentCreate = errors.New("failed to create Assignment")
 	// ErrAssignmentDelete indicates a failure to delete an Assignment CRD.
 	ErrAssignmentDelete = errors.New("failed to delete Assignment")
+	// ErrProfileStatusUUIDNotFound indicates the Profile status UUID was not found within timeout.
+	ErrProfileStatusUUIDNotFound = errors.New("profile status UUID not found")
+	// ErrConfigMapCreate indicates a failure to create a ConfigMap.
+	ErrConfigMapCreate = errors.New("failed to create ConfigMap")
+	// ErrConfigMapDelete indicates a failure to delete a ConfigMap.
+	ErrConfigMapDelete = errors.New("failed to delete ConfigMap")
+	// ErrSecretCreate indicates a failure to create a Secret.
+	ErrSecretCreate = errors.New("failed to create Secret")
+	// ErrSecretDelete indicates a failure to delete a Secret.
+	ErrSecretDelete = errors.New("failed to delete Secret")
 )
 
 // NewK8sClient creates a controller-runtime client from the given kubeconfig path.
@@ -212,4 +224,143 @@ func setBuildarchLabel(labels map[string]string, buildarch v1alpha1.Buildarch) {
 	case v1alpha1.X8664:
 		labels[v1alpha1.X8664BuildarchLabelSelector] = ""
 	}
+}
+
+// WaitForProfileStatusUUID polls the Profile's Status.ExposedAdditionalContent for the given contentName.
+// Returns the UUID string when found (non-empty value in the map), or times out with an error.
+func WaitForProfileStatusUUID(
+	ctx context.Context,
+	c client.Client,
+	name, namespace, contentName string,
+	timeout time.Duration,
+) (string, error) {
+	deadline := time.Now().Add(timeout)
+	pollInterval := 1 * time.Second
+
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		default:
+		}
+
+		var profile v1alpha1.Profile
+		if err := c.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, &profile); err != nil {
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		if profile.Status.ExposedAdditionalContent != nil {
+			if uuid, ok := profile.Status.ExposedAdditionalContent[contentName]; ok && uuid != "" {
+				return uuid, nil
+			}
+		}
+
+		time.Sleep(pollInterval)
+	}
+
+	return "", errors.Join(ErrProfileStatusUUIDNotFound,
+		fmt.Errorf("timeout after %v waiting for UUID in Profile %s/%s for content %q", timeout, namespace, name, contentName))
+}
+
+// CreateConfigMap creates a ConfigMap with the given name, namespace, and data.
+func CreateConfigMap(
+	ctx context.Context,
+	c client.Client,
+	name, namespace string,
+	data map[string]string,
+) (*corev1.ConfigMap, error) {
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Data: data,
+	}
+
+	if err := c.Create(ctx, configMap); err != nil {
+		return nil, errors.Join(ErrConfigMapCreate, err)
+	}
+
+	return configMap, nil
+}
+
+// CreateSecret creates a Secret with the given name, namespace, and data.
+func CreateSecret(
+	ctx context.Context,
+	c client.Client,
+	name, namespace string,
+	data map[string][]byte,
+) (*corev1.Secret, error) {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Type: corev1.SecretTypeOpaque,
+		Data: data,
+	}
+
+	if err := c.Create(ctx, secret); err != nil {
+		return nil, errors.Join(ErrSecretCreate, err)
+	}
+
+	return secret, nil
+}
+
+// CreateProfileWithContent creates a Profile CRD with the given name, namespace, iPXE template, and additional content.
+func CreateProfileWithContent(
+	ctx context.Context,
+	c client.Client,
+	name, namespace, ipxeTemplate string,
+	content []v1alpha1.AdditionalContent,
+) (*v1alpha1.Profile, error) {
+	profile := &v1alpha1.Profile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: v1alpha1.ProfileSpec{
+			IPXETemplate:      ipxeTemplate,
+			AdditionalContent: content,
+		},
+	}
+
+	if err := c.Create(ctx, profile); err != nil {
+		return nil, errors.Join(ErrProfileCreate, err)
+	}
+
+	return profile, nil
+}
+
+// DeleteConfigMap deletes a ConfigMap by name and namespace.
+func DeleteConfigMap(ctx context.Context, c client.Client, name, namespace string) error {
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+	}
+
+	if err := c.Delete(ctx, configMap); err != nil {
+		return errors.Join(ErrConfigMapDelete, err)
+	}
+
+	return nil
+}
+
+// DeleteSecret deletes a Secret by name and namespace.
+func DeleteSecret(ctx context.Context, c client.Client, name, namespace string) error {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+	}
+
+	if err := c.Delete(ctx, secret); err != nil {
+		return errors.Join(ErrSecretDelete, err)
+	}
+
+	return nil
 }

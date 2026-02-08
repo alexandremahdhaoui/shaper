@@ -18,6 +18,7 @@ package e2e_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -30,8 +31,50 @@ import (
 	"time"
 
 	"github.com/alexandremahdhaoui/shaper/pkg/test/e2e"
+	"github.com/alexandremahdhaoui/shaper/pkg/v1alpha1"
 	"github.com/stretchr/testify/require"
 )
+
+var globalPortForward *e2e.PortForward
+
+func TestMain(m *testing.M) {
+	cfg, err := e2e.LoadTestenvConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to load testenv config: %v\n", err)
+		os.Exit(1)
+	}
+
+	pf, err := e2e.SetupGlobalPortForwardWithWait(cfg.Kubeconfig, 60*time.Second)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to setup port-forward: %v\n", err)
+		os.Exit(1)
+	}
+	globalPortForward = pf
+
+	if err := e2e.VerifyBridgeAccess(pf); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: bridge access verification failed: %v\n", err)
+	}
+
+	vmClient, err := e2e.NewVMClient("/tmp/shaper-testenv-vm")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create VM client: %v\n", err)
+		pf.Stop()
+		os.Exit(1)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	if err := vmClient.WaitForDnsmasqServerReady(ctx, 5*time.Minute); err != nil {
+		fmt.Fprintf(os.Stderr, "DnsmasqServer not ready: %v\n", err)
+		cancel()
+		pf.Stop()
+		os.Exit(1)
+	}
+	cancel()
+
+	code := m.Run()
+	pf.Stop()
+	os.Exit(code)
+}
 
 // TestIPXEBootFlow_E2E is the main end-to-end test for iPXE boot flow
 // Uses testenv-vm environment variables for VM configuration
@@ -213,27 +256,8 @@ func TestDefaultAssignmentBoot_E2E(t *testing.T) {
 	t.Logf("  Kubeconfig: %s", cfg.Kubeconfig)
 	t.Logf("  Bridge IP: %s", cfg.BridgeIP)
 
-	// CRITICAL: Set up global port-forward BEFORE creating any VMs
-	// The dnsmasq is configured to chainload iPXE to http://192.168.100.1:30080/boot.ipxe
-	// We need port 30080 to be accessible on the host (192.168.100.1 from VM perspective)
-	t.Log("Setting up global port-forward to shaper-api on 0.0.0.0:30080...")
-	portForward, err := e2e.SetupGlobalPortForwardWithWait(cfg.Kubeconfig, 30*time.Second)
-	require.NoError(t, err, "failed to set up port-forward to shaper-api")
-	t.Logf("Port-forward ready at %s", portForward.URL)
-	t.Cleanup(func() {
-		t.Log("Stopping global port-forward...")
-		portForward.Stop()
-	})
-
-	// Verify port-forward is accessible on the bridge interface (192.168.100.1)
-	// This is the IP that VMs will use to reach shaper-api
-	t.Log("Verifying port-forward is accessible on bridge interface...")
-	if err := e2e.VerifyBridgeAccess(portForward); err != nil {
-		t.Logf("Warning: Bridge access verification failed: %v", err)
-		t.Log("This may cause VMs to fail chainloading iPXE from shaper-api")
-	} else {
-		t.Logf("Bridge access verified at http://%s:%d", e2e.BridgeGatewayIP, portForward.Port)
-	}
+	require.NotNil(t, globalPortForward, "global port-forward not initialized")
+	portForward := globalPortForward
 
 	// Create Kubernetes client
 	k8sClient, err := e2e.NewK8sClient(cfg.Kubeconfig)
@@ -242,14 +266,6 @@ func TestDefaultAssignmentBoot_E2E(t *testing.T) {
 	// Create VM client
 	vmClient, err := e2e.NewVMClient("/tmp/shaper-testenv-vm")
 	require.NoError(t, err, "failed to create VM client")
-
-	// CRITICAL: Wait for DnsmasqServer to be fully ready (iPXE binary built and dnsmasq running)
-	// The DnsmasqServer builds the custom iPXE binary during cloud-init, which can take several minutes.
-	// VMs that try to PXE boot before this completes will fail to get DHCP/TFTP responses.
-	t.Log("Waiting for DnsmasqServer to be ready (iPXE binary and dnsmasq)...")
-	err = vmClient.WaitForDnsmasqServerReady(ctx, 5*time.Minute)
-	require.NoError(t, err, "DnsmasqServer not ready - iPXE binary may not be built yet")
-	t.Log("DnsmasqServer is ready")
 
 	// Test resources
 	const (
@@ -432,12 +448,6 @@ func TestMTLSIPXEBoot_E2E(t *testing.T) {
 	// Create VM client
 	vmClient, err := e2e.NewVMClient("/tmp/shaper-testenv-vm")
 	require.NoError(t, err, "failed to create VM client")
-
-	// Wait for DnsmasqServer to be ready (required for iPXE ISO build)
-	t.Log("Waiting for DnsmasqServer to be ready (iPXE source and dnsmasq)...")
-	err = vmClient.WaitForDnsmasqServerReady(ctx, 5*time.Minute)
-	require.NoError(t, err, "DnsmasqServer not ready - iPXE source may not be available")
-	t.Log("DnsmasqServer is ready")
 
 	// Helm config for mTLS
 	chartPath := filepath.Join(cfg.ProjectRoot, "charts", "shaper-api")
@@ -627,27 +637,8 @@ func TestUUIDAssignmentBoot_E2E(t *testing.T) {
 	t.Logf("  Kubeconfig: %s", cfg.Kubeconfig)
 	t.Logf("  Bridge IP: %s", cfg.BridgeIP)
 
-	// CRITICAL: Set up global port-forward BEFORE creating any VMs
-	// The dnsmasq is configured to chainload iPXE to http://192.168.100.1:30080/boot.ipxe
-	// We need port 30080 to be accessible on the host (192.168.100.1 from VM perspective)
-	t.Log("Setting up global port-forward to shaper-api on 0.0.0.0:30080...")
-	portForward, err := e2e.SetupGlobalPortForwardWithWait(cfg.Kubeconfig, 30*time.Second)
-	require.NoError(t, err, "failed to set up port-forward to shaper-api")
-	t.Logf("Port-forward ready at %s", portForward.URL)
-	t.Cleanup(func() {
-		t.Log("Stopping global port-forward...")
-		portForward.Stop()
-	})
-
-	// Verify port-forward is accessible on the bridge interface (192.168.100.1)
-	// This is the IP that VMs will use to reach shaper-api
-	t.Log("Verifying port-forward is accessible on bridge interface...")
-	if err := e2e.VerifyBridgeAccess(portForward); err != nil {
-		t.Logf("Warning: Bridge access verification failed: %v", err)
-		t.Log("This may cause VMs to fail chainloading iPXE from shaper-api")
-	} else {
-		t.Logf("Bridge access verified at http://%s:%d", e2e.BridgeGatewayIP, portForward.Port)
-	}
+	require.NotNil(t, globalPortForward, "global port-forward not initialized")
+	portForward := globalPortForward
 
 	// Create Kubernetes client
 	k8sClient, err := e2e.NewK8sClient(cfg.Kubeconfig)
@@ -656,14 +647,6 @@ func TestUUIDAssignmentBoot_E2E(t *testing.T) {
 	// Create VM client
 	vmClient, err := e2e.NewVMClient("/tmp/shaper-testenv-vm")
 	require.NoError(t, err, "failed to create VM client")
-
-	// CRITICAL: Wait for DnsmasqServer to be fully ready (iPXE binary built and dnsmasq running)
-	// The DnsmasqServer builds the custom iPXE binary during cloud-init, which can take several minutes.
-	// VMs that try to PXE boot before this completes will fail to get DHCP/TFTP responses.
-	t.Log("Waiting for DnsmasqServer to be ready (iPXE binary and dnsmasq)...")
-	err = vmClient.WaitForDnsmasqServerReady(ctx, 5*time.Minute)
-	require.NoError(t, err, "DnsmasqServer not ready - iPXE binary may not be built yet")
-	t.Log("DnsmasqServer is ready")
 
 	// Test resources
 	const (
@@ -812,4 +795,775 @@ shell`
 	require.Equal(t, profileName, result.ProfileName, "expected profile_matched to contain our profile")
 
 	t.Log("Test PASSED: UUID-specific assignment boot flow verified (UUID in request, matched_by=uuid, correct profile)")
+}
+
+// ptr returns a pointer to the given value.
+func ptr[T any](v T) *T {
+	return &v
+}
+
+// TestInlineContentResolution_E2E tests that inline content is correctly resolved and served.
+// This verifies TC3: Create Profile with inline content (Exposed=true), wait for UUID in status,
+// fetch content from /config/{uuid}, verify content matches inline source exactly.
+func TestInlineContentResolution_E2E(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	// Load testenv configuration
+	cfg, err := e2e.LoadTestenvConfig()
+	require.NoError(t, err, "testenv configuration must be available - run with forge test e2e run")
+
+	t.Logf("Using testenv configuration:")
+	t.Logf("  Kubeconfig: %s", cfg.Kubeconfig)
+
+	require.NotNil(t, globalPortForward, "global port-forward not initialized")
+	portForward := globalPortForward
+
+	// Create Kubernetes client
+	k8sClient, err := e2e.NewK8sClient(cfg.Kubeconfig)
+	require.NoError(t, err, "failed to create Kubernetes client")
+
+	// Test resources
+	const (
+		profileName = "e2e-tc3-inline-profile"
+		namespace   = "shaper-system"
+		contentName = "inline-test-content"
+	)
+
+	// Inline content to test
+	inlineContent := "Hello from inline content"
+
+	// iPXE template (minimal, just for Profile creation)
+	ipxeTemplate := `#!ipxe
+echo TC3 Inline Content Test
+shell`
+
+	// Additional content with inline source
+	additionalContent := []v1alpha1.AdditionalContent{
+		{
+			Name:    contentName,
+			Exposed: true,
+			Inline:  ptr(inlineContent),
+		},
+	}
+
+	// Cleanup function
+	t.Cleanup(func() {
+		t.Log("Cleaning up test resources...")
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
+
+		if err := e2e.DeleteProfile(cleanupCtx, k8sClient, profileName, namespace); err != nil {
+			t.Logf("Warning: failed to delete Profile %s: %v", profileName, err)
+		}
+	})
+
+	// Step 1: Create Profile with inline content
+	t.Log("Creating Profile with inline content...")
+	_, err = e2e.CreateProfileWithContent(ctx, k8sClient, profileName, namespace, ipxeTemplate, additionalContent)
+	require.NoError(t, err, "failed to create Profile")
+	t.Logf("Created Profile: %s", profileName)
+
+	// Step 2: Wait for Profile.Status.ExposedAdditionalContent to contain UUID
+	t.Log("Waiting for Profile status to contain UUID for exposed content...")
+	contentUUID, err := e2e.WaitForProfileStatusUUID(ctx, k8sClient, profileName, namespace, contentName, 60*time.Second)
+	require.NoError(t, err, "Profile status did not contain UUID for content - is shaper-controller running?")
+	t.Logf("Got content UUID: %s", contentUUID)
+
+	// Step 3: Fetch content from /content/{uuid}
+	t.Log("Fetching content from /content/{uuid}...")
+	fetchedContent, err := e2e.FetchContent(ctx, portForward.URL, contentUUID, "i386")
+	require.NoError(t, err, "failed to fetch content from /content/{uuid}")
+	t.Logf("Fetched content (%d bytes): %s", len(fetchedContent), string(fetchedContent))
+
+	// Step 4: Verify content matches inline source exactly
+	require.Equal(t, inlineContent, string(fetchedContent), "fetched content should match inline source exactly")
+
+	t.Log("TC3 PASSED: Inline content resolution verified")
+}
+
+// TestObjectRefConfigMapResolution_E2E tests that ObjectRef ConfigMap content is correctly resolved.
+// This verifies TC4: Create ConfigMap, create Profile with ObjectRef pointing to ConfigMap,
+// wait for UUID in status, fetch content, verify content matches ConfigMap data.
+func TestObjectRefConfigMapResolution_E2E(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	// Load testenv configuration
+	cfg, err := e2e.LoadTestenvConfig()
+	require.NoError(t, err, "testenv configuration must be available - run with forge test e2e run")
+
+	t.Logf("Using testenv configuration:")
+	t.Logf("  Kubeconfig: %s", cfg.Kubeconfig)
+
+	require.NotNil(t, globalPortForward, "global port-forward not initialized")
+	portForward := globalPortForward
+
+	// Create Kubernetes client
+	k8sClient, err := e2e.NewK8sClient(cfg.Kubeconfig)
+	require.NoError(t, err, "failed to create Kubernetes client")
+
+	// Test resources
+	const (
+		profileName   = "e2e-tc4-configmap-profile"
+		configMapName = "e2e-tc4-configmap"
+		namespace     = "shaper-system"
+		contentName   = "configmap-ref-content"
+		configMapKey  = "testkey"
+	)
+
+	// ConfigMap content to test
+	configMapContent := "Hello from ConfigMap"
+
+	// iPXE template (minimal, just for Profile creation)
+	ipxeTemplate := `#!ipxe
+echo TC4 ObjectRef ConfigMap Test
+shell`
+
+	// Cleanup function (order matters: Profile first, then ConfigMap)
+	t.Cleanup(func() {
+		t.Log("Cleaning up test resources...")
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
+
+		if err := e2e.DeleteProfile(cleanupCtx, k8sClient, profileName, namespace); err != nil {
+			t.Logf("Warning: failed to delete Profile %s: %v", profileName, err)
+		}
+		if err := e2e.DeleteConfigMap(cleanupCtx, k8sClient, configMapName, namespace); err != nil {
+			t.Logf("Warning: failed to delete ConfigMap %s: %v", configMapName, err)
+		}
+	})
+
+	// Step 1: Create ConfigMap BEFORE Profile (dependency order)
+	t.Log("Creating ConfigMap...")
+	_, err = e2e.CreateConfigMap(ctx, k8sClient, configMapName, namespace, map[string]string{
+		configMapKey: configMapContent,
+	})
+	require.NoError(t, err, "failed to create ConfigMap")
+	t.Logf("Created ConfigMap: %s", configMapName)
+
+	// Step 2: Create Profile with ObjectRef pointing to ConfigMap
+	t.Log("Creating Profile with ObjectRef to ConfigMap...")
+	additionalContent := []v1alpha1.AdditionalContent{
+		{
+			Name:    contentName,
+			Exposed: true,
+			ObjectRef: &v1alpha1.ObjectRef{
+				ResourceRef: v1alpha1.ResourceRef{
+					Group:     "",
+					Version:   "v1",
+					Resource:  "configmaps",
+					Namespace: namespace,
+					Name:      configMapName,
+				},
+				JSONPath: ".data." + configMapKey,
+			},
+		},
+	}
+	_, err = e2e.CreateProfileWithContent(ctx, k8sClient, profileName, namespace, ipxeTemplate, additionalContent)
+	require.NoError(t, err, "failed to create Profile")
+	t.Logf("Created Profile: %s", profileName)
+
+	// Step 3: Wait for Profile.Status.ExposedAdditionalContent to contain UUID
+	t.Log("Waiting for Profile status to contain UUID for exposed content...")
+	contentUUID, err := e2e.WaitForProfileStatusUUID(ctx, k8sClient, profileName, namespace, contentName, 60*time.Second)
+	require.NoError(t, err, "Profile status did not contain UUID for content - is shaper-controller running?")
+	t.Logf("Got content UUID: %s", contentUUID)
+
+	// Step 4: Fetch content from /content/{uuid}
+	t.Log("Fetching content from /content/{uuid}...")
+	fetchedContent, err := e2e.FetchContent(ctx, portForward.URL, contentUUID, "i386")
+	require.NoError(t, err, "failed to fetch content from /content/{uuid}")
+	t.Logf("Fetched content (%d bytes): %s", len(fetchedContent), string(fetchedContent))
+
+	// Step 5: Verify content matches ConfigMap value exactly
+	require.Equal(t, configMapContent, string(fetchedContent), "fetched content should match ConfigMap value exactly")
+
+	t.Log("TC4 PASSED: ObjectRef ConfigMap resolution verified")
+}
+
+// TestObjectRefSecretResolution_E2E tests that ObjectRef Secret content is correctly resolved.
+// This verifies TC4b: Create Secret, create Profile with ObjectRef pointing to Secret,
+// wait for UUID in status, fetch content, verify content matches Secret data (decoded).
+func TestObjectRefSecretResolution_E2E(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	// Load testenv configuration
+	cfg, err := e2e.LoadTestenvConfig()
+	require.NoError(t, err, "testenv configuration must be available - run with forge test e2e run")
+
+	t.Logf("Using testenv configuration:")
+	t.Logf("  Kubeconfig: %s", cfg.Kubeconfig)
+
+	require.NotNil(t, globalPortForward, "global port-forward not initialized")
+	portForward := globalPortForward
+
+	// Create Kubernetes client
+	k8sClient, err := e2e.NewK8sClient(cfg.Kubeconfig)
+	require.NoError(t, err, "failed to create Kubernetes client")
+
+	// Test resources
+	const (
+		profileName = "e2e-tc4b-secret-profile"
+		secretName  = "e2e-tc4b-secret"
+		namespace   = "shaper-system"
+		contentName = "secret-ref-content"
+		secretKey   = "secretkey"
+	)
+
+	// Secret content to test
+	secretContent := "Hello from Secret"
+
+	// iPXE template (minimal, just for Profile creation)
+	ipxeTemplate := `#!ipxe
+echo TC4b ObjectRef Secret Test
+shell`
+
+	// Cleanup function (order matters: Profile first, then Secret)
+	t.Cleanup(func() {
+		t.Log("Cleaning up test resources...")
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
+
+		if err := e2e.DeleteProfile(cleanupCtx, k8sClient, profileName, namespace); err != nil {
+			t.Logf("Warning: failed to delete Profile %s: %v", profileName, err)
+		}
+		if err := e2e.DeleteSecret(cleanupCtx, k8sClient, secretName, namespace); err != nil {
+			t.Logf("Warning: failed to delete Secret %s: %v", secretName, err)
+		}
+	})
+
+	// Step 1: Create Secret BEFORE Profile (dependency order)
+	t.Log("Creating Secret...")
+	_, err = e2e.CreateSecret(ctx, k8sClient, secretName, namespace, map[string][]byte{
+		secretKey: []byte(secretContent),
+	})
+	require.NoError(t, err, "failed to create Secret")
+	t.Logf("Created Secret: %s", secretName)
+
+	// Step 2: Create Profile with ObjectRef pointing to Secret
+	t.Log("Creating Profile with ObjectRef to Secret...")
+	additionalContent := []v1alpha1.AdditionalContent{
+		{
+			Name:    contentName,
+			Exposed: true,
+			ObjectRef: &v1alpha1.ObjectRef{
+				ResourceRef: v1alpha1.ResourceRef{
+					Group:     "",
+					Version:   "v1",
+					Resource:  "secrets",
+					Namespace: namespace,
+					Name:      secretName,
+				},
+				JSONPath: ".data." + secretKey,
+			},
+		},
+	}
+	_, err = e2e.CreateProfileWithContent(ctx, k8sClient, profileName, namespace, ipxeTemplate, additionalContent)
+	require.NoError(t, err, "failed to create Profile")
+	t.Logf("Created Profile: %s", profileName)
+
+	// Step 3: Wait for Profile.Status.ExposedAdditionalContent to contain UUID
+	t.Log("Waiting for Profile status to contain UUID for exposed content...")
+	contentUUID, err := e2e.WaitForProfileStatusUUID(ctx, k8sClient, profileName, namespace, contentName, 60*time.Second)
+	require.NoError(t, err, "Profile status did not contain UUID for content - is shaper-controller running?")
+	t.Logf("Got content UUID: %s", contentUUID)
+
+	// Step 4: Fetch content from /content/{uuid}
+	t.Log("Fetching content from /content/{uuid}...")
+	fetchedContent, err := e2e.FetchContent(ctx, portForward.URL, contentUUID, "i386")
+	require.NoError(t, err, "failed to fetch content from /content/{uuid}")
+	t.Logf("Fetched content (%d bytes): %s", len(fetchedContent), string(fetchedContent))
+
+	// Step 5: Verify content matches Secret value (decoded, not base64)
+	// Note: Secret.Data values are stored as []byte in K8s API. The resolver should handle decoding.
+	require.Equal(t, secretContent, string(fetchedContent), "fetched content should match Secret value (decoded)")
+
+	t.Log("TC4b PASSED: ObjectRef Secret resolution verified")
+}
+
+// TestButaneToIgnitionTransformation_E2E tests that Butane-to-Ignition transformation works.
+// This verifies TC5: Create Profile with inline Butane YAML and butaneToIgnition transformer,
+// wait for UUID in status, fetch content, verify response is valid Ignition JSON.
+func TestButaneToIgnitionTransformation_E2E(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	// Load testenv configuration
+	cfg, err := e2e.LoadTestenvConfig()
+	require.NoError(t, err, "testenv configuration must be available - run with forge test e2e run")
+
+	t.Logf("Using testenv configuration:")
+	t.Logf("  Kubeconfig: %s", cfg.Kubeconfig)
+
+	require.NotNil(t, globalPortForward, "global port-forward not initialized")
+	portForward := globalPortForward
+
+	// Create Kubernetes client
+	k8sClient, err := e2e.NewK8sClient(cfg.Kubeconfig)
+	require.NoError(t, err, "failed to create Kubernetes client")
+
+	// Test resources
+	const (
+		profileName = "e2e-tc5-butane-profile"
+		namespace   = "shaper-system"
+		contentName = "butane-ignition-content"
+	)
+
+	// Butane YAML content
+	butaneContent := `variant: fcos
+version: 1.5.0
+storage:
+  files:
+    - path: /etc/e2e-test
+      contents:
+        inline: "e2e-test-content"`
+
+	// iPXE template (minimal, just for Profile creation)
+	ipxeTemplate := `#!ipxe
+echo TC5 Butane-to-Ignition Test
+shell`
+
+	// Additional content with Butane source and transformation
+	additionalContent := []v1alpha1.AdditionalContent{
+		{
+			Name:    contentName,
+			Exposed: true,
+			Inline:  ptr(butaneContent),
+			PostTransformations: []v1alpha1.Transformer{
+				{ButaneToIgnition: true},
+			},
+		},
+	}
+
+	// Cleanup function
+	t.Cleanup(func() {
+		t.Log("Cleaning up test resources...")
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
+
+		if err := e2e.DeleteProfile(cleanupCtx, k8sClient, profileName, namespace); err != nil {
+			t.Logf("Warning: failed to delete Profile %s: %v", profileName, err)
+		}
+	})
+
+	// Step 1: Create Profile with Butane content and transformation
+	t.Log("Creating Profile with Butane content and butaneToIgnition transformer...")
+	_, err = e2e.CreateProfileWithContent(ctx, k8sClient, profileName, namespace, ipxeTemplate, additionalContent)
+	require.NoError(t, err, "failed to create Profile")
+	t.Logf("Created Profile: %s", profileName)
+
+	// Step 2: Wait for Profile.Status.ExposedAdditionalContent to contain UUID
+	t.Log("Waiting for Profile status to contain UUID for exposed content...")
+	contentUUID, err := e2e.WaitForProfileStatusUUID(ctx, k8sClient, profileName, namespace, contentName, 60*time.Second)
+	require.NoError(t, err, "Profile status did not contain UUID for content - is shaper-controller running?")
+	t.Logf("Got content UUID: %s", contentUUID)
+
+	// Step 3: Fetch content from /content/{uuid}
+	t.Log("Fetching content from /content/{uuid}...")
+	fetchedContent, err := e2e.FetchContent(ctx, portForward.URL, contentUUID, "i386")
+	require.NoError(t, err, "failed to fetch content from /content/{uuid}")
+	t.Logf("Fetched content (%d bytes)", len(fetchedContent))
+
+	// Step 4: Verify response is valid Ignition JSON
+	t.Log("Verifying response is valid Ignition JSON...")
+	var ignitionJSON map[string]interface{}
+	err = json.Unmarshal(fetchedContent, &ignitionJSON)
+	require.NoError(t, err, "response should be valid JSON")
+
+	// Step 5: Verify Ignition structure contains expected fields
+	ignitionObj, ok := ignitionJSON["ignition"].(map[string]interface{})
+	require.True(t, ok, "response should contain 'ignition' object")
+
+	version, ok := ignitionObj["version"].(string)
+	require.True(t, ok, "ignition object should contain 'version' field")
+	require.NotEmpty(t, version, "ignition version should not be empty")
+	t.Logf("Ignition version: %s", version)
+
+	// Verify storage/files section exists (from our Butane config)
+	storage, ok := ignitionJSON["storage"].(map[string]interface{})
+	require.True(t, ok, "response should contain 'storage' object")
+
+	files, ok := storage["files"].([]interface{})
+	require.True(t, ok, "storage should contain 'files' array")
+	require.NotEmpty(t, files, "files array should not be empty")
+
+	// Verify our file path exists
+	found := false
+	for _, f := range files {
+		file, ok := f.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if path, ok := file["path"].(string); ok && path == "/etc/e2e-test" {
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "Ignition should contain file with path /etc/e2e-test")
+
+	t.Log("TC5 PASSED: Butane-to-Ignition transformation verified")
+}
+
+// TestBootableOSDefaultAssignment_E2E tests VM boot using a default assignment with Alpine Linux.
+// This test verifies the complete network boot flow with an actual bootable OS:
+// 1. VM boots from network via DHCP/TFTP (SeaBIOS -> dnsmasq -> custom iPXE)
+// 2. iPXE chainloads to shaper-api via HTTP
+// 3. shaper-api matches default assignment for i386
+// 4. Alpine Linux kernel and initrd are loaded and booted
+// 5. VM console shows Alpine-specific boot markers and e2e test marker
+func TestBootableOSDefaultAssignment_E2E(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	// Load testenv configuration
+	cfg, err := e2e.LoadTestenvConfig()
+	require.NoError(t, err, "testenv configuration must be available - run with forge test e2e run")
+
+	t.Logf("Using testenv configuration:")
+	t.Logf("  Kubeconfig: %s", cfg.Kubeconfig)
+	t.Logf("  Bridge IP: %s", cfg.BridgeIP)
+
+	require.NotNil(t, globalPortForward, "global port-forward not initialized")
+	portForward := globalPortForward
+
+	// Create Kubernetes client
+	k8sClient, err := e2e.NewK8sClient(cfg.Kubeconfig)
+	require.NoError(t, err, "failed to create Kubernetes client")
+
+	// Create VM client
+	vmClient, err := e2e.NewVMClient("/tmp/shaper-testenv-vm")
+	require.NoError(t, err, "failed to create VM client")
+
+	// Test resources
+	const (
+		profileName    = "e2e-bootable-default-profile"
+		assignmentName = "e2e-bootable-default-assignment"
+		namespace      = "shaper-system"
+		vmName         = "e2e-tc1-bootable-default-vm"
+	)
+
+	// iPXE template that boots Alpine Linux from the network
+	// Note: BIOS iPXE firmware reports buildarch=i386
+	// Alpine Linux netboot: https://boot.alpinelinux.org/
+	// The e2e_marker in kernel cmdline proves the correct profile was served
+	ipxeTemplate := `#!ipxe
+echo =============================================
+echo E2E Test: Bootable OS Default Assignment
+echo =============================================
+echo UUID: ${uuid}
+echo Buildarch: ${buildarch}
+echo Profile: e2e-bootable-default-profile
+echo =============================================
+echo Booting Alpine Linux (E2E Test - Default Assignment)
+set mirror http://dl-cdn.alpinelinux.org/alpine
+set release v3.19
+set arch x86_64
+kernel ${mirror}/${release}/releases/${arch}/netboot/vmlinuz-lts alpine_repo=${mirror}/${release}/main modloop=${mirror}/${release}/releases/${arch}/netboot/modloop-lts console=ttyS0,115200 e2e_marker=bootable-os-default
+initrd ${mirror}/${release}/releases/${arch}/netboot/initramfs-lts
+boot`
+
+	// Cleanup function
+	cleanup := func() {
+		t.Log("Cleaning up test resources...")
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
+
+		// Delete VM first
+		if err := vmClient.DeleteVM(cleanupCtx, vmName); err != nil {
+			t.Logf("Warning: failed to delete VM %s: %v", vmName, err)
+		}
+
+		// Delete Assignment before Profile
+		if err := e2e.DeleteAssignment(cleanupCtx, k8sClient, assignmentName, namespace); err != nil {
+			t.Logf("Warning: failed to delete Assignment %s: %v", assignmentName, err)
+		}
+
+		// Delete Profile
+		if err := e2e.DeleteProfile(cleanupCtx, k8sClient, profileName, namespace); err != nil {
+			t.Logf("Warning: failed to delete Profile %s: %v", profileName, err)
+		}
+	}
+	t.Cleanup(cleanup)
+
+	// Step 1: Create Profile with bootable iPXE template
+	t.Log("Creating Profile with bootable Alpine Linux iPXE template...")
+	_, err = e2e.CreateProfile(ctx, k8sClient, profileName, namespace, ipxeTemplate)
+	require.NoError(t, err, "failed to create Profile")
+	t.Logf("Created Profile: %s", profileName)
+
+	// Step 2: Create default Assignment for i386
+	// Note: BIOS iPXE firmware (undionly.kpxe) reports buildarch=i386
+	t.Log("Creating default Assignment for i386...")
+	_, err = e2e.CreateDefaultAssignment(ctx, k8sClient, assignmentName, namespace, profileName, "i386")
+	require.NoError(t, err, "failed to create Assignment")
+	t.Logf("Created Assignment: %s", assignmentName)
+
+	// Step 3: Get shaper-api pod name for log verification
+	podName, err := e2e.GetShaperAPIPodName(ctx, k8sClient)
+	require.NoError(t, err, "failed to get shaper-api pod name")
+	t.Logf("Found shaper-api pod: %s", podName)
+
+	// Verify shaper-api can serve the /ipxe endpoint before starting VM.
+	// This ensures the Assignment is visible in shaper-api's cache.
+	t.Log("Verifying shaper-api can serve /ipxe endpoint...")
+	verifyCtx, verifyCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer verifyCancel()
+	err = e2e.WaitForIPXEEndpointReady(verifyCtx, portForward.URL, "i386")
+	require.NoError(t, err, "shaper-api /ipxe endpoint not ready")
+
+	// Record timestamp before VM boot for log filtering
+	startTime := time.Now()
+
+	// Step 4: Create network boot VM (without starting) to get UUID
+	t.Log("Creating network boot VM...")
+	vmSpec := e2e.VMSpec{
+		Memory:    2048,
+		VCPUs:     2,
+		Network:   "TestNetwork",
+		BootOrder: []string{"network"},
+		Firmware:  "bios",
+		AutoStart: false, // Don't start yet - need to get UUID first
+	}
+	err = vmClient.CreateVM(ctx, vmName, vmSpec)
+	require.NoError(t, err, "failed to create VM")
+	t.Logf("Created VM: %s (not started)", vmName)
+
+	// Step 5: Get VM UUID for log matching
+	// Note: We match by UUID instead of client_ip because port-forward makes
+	// all requests appear to come from localhost, not the VM's actual IP.
+	t.Log("Getting VM UUID...")
+	vmUUID, err := vmClient.GetVMUUID(ctx, vmName)
+	require.NoError(t, err, "failed to get VM UUID")
+	t.Logf("VM UUID: %s", vmUUID.String())
+
+	// Step 6: Start the VM
+	t.Log("Starting VM...")
+	err = vmClient.StartVM(ctx, vmName)
+	require.NoError(t, err, "failed to start VM")
+	t.Logf("Started VM: %s (network boot)", vmName)
+
+	// Step 7: Wait for VM to get an IP (indicates DHCP worked)
+	t.Log("Waiting for VM to get IP address...")
+	vmIP, err := vmClient.GetVMIP(ctx, vmName)
+	require.NoError(t, err, "VM did not get IP address - DHCP may have failed")
+	t.Logf("VM got IP address: %s", vmIP)
+
+	// Step 8: Wait for profile_matched in shaper-api logs
+	t.Log("Waiting for profile_matched in shaper-api logs...")
+	result, err := e2e.WaitForProfileMatched(ctx, cfg.Kubeconfig, e2e.ShaperSystemNamespace,
+		podName, profileName, startTime, 2*time.Minute)
+	if err != nil {
+		// On failure, dump VM console log for debugging
+		consoleLog, consoleErr := vmClient.GetConsoleLog(ctx, vmName)
+		if consoleErr != nil {
+			t.Logf("Failed to get VM console log: %v", consoleErr)
+		} else {
+			t.Logf("=== VM Console Log (%s) ===\n%s\n=== End Console Log ===", vmName, consoleLog)
+		}
+	}
+	require.NoError(t, err, "did not find profile_matched log entry for expected profile")
+	t.Logf("Found profile_matched: Profile=%s, Assignment=%s", result.ProfileName, result.AssignmentName)
+
+	// Step 9: Verify the correct profile was matched
+	require.Equal(t, profileName, result.ProfileName, "expected profile_matched to contain our profile")
+
+	// Step 10: Wait for Alpine boot completion with e2e marker verification
+	// This is the KEY difference from TestDefaultAssignmentBoot_E2E - we verify actual OS boot
+	// and that the correct profile was served via the e2e_marker in kernel cmdline
+	t.Log("Waiting for Alpine Linux boot completion with e2e marker verification...")
+	err = vmClient.WaitForAlpineBootComplete(ctx, vmName, "e2e_marker=bootable-os-default", 3*time.Minute)
+	if err != nil {
+		// On failure, dump VM console log for debugging
+		consoleLog, consoleErr := vmClient.GetConsoleLog(ctx, vmName)
+		if consoleErr != nil {
+			t.Logf("Failed to get VM console log: %v", consoleErr)
+		} else {
+			t.Logf("=== VM Console Log (%s) ===\n%s\n=== End Console Log ===", vmName, consoleLog)
+		}
+	}
+	require.NoError(t, err, "VM did not boot Alpine Linux with expected e2e marker - check console log for details")
+	t.Log("Alpine Linux boot completed successfully with e2e marker verified")
+
+	t.Log("TC1 Bootable OS PASSED: Default assignment network boot flow verified with Alpine Linux")
+}
+
+// TestBootableOSUUIDAssignment_E2E tests VM boot using a UUID-specific assignment with Alpine Linux.
+// This test verifies:
+// 1. VM is created (not started) to discover its UUID
+// 2. UUID-specific Assignment is created with discovered UUID
+// 3. VM boots from network via DHCP/TFTP and shaper-api matches the UUID-specific assignment
+// 4. Alpine Linux kernel and initrd are loaded and booted
+// 5. VM console shows Alpine-specific boot markers and e2e test marker
+func TestBootableOSUUIDAssignment_E2E(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	// Load testenv configuration
+	cfg, err := e2e.LoadTestenvConfig()
+	require.NoError(t, err, "testenv configuration must be available - run with forge test e2e run")
+
+	t.Logf("Using testenv configuration:")
+	t.Logf("  Kubeconfig: %s", cfg.Kubeconfig)
+	t.Logf("  Bridge IP: %s", cfg.BridgeIP)
+
+	require.NotNil(t, globalPortForward, "global port-forward not initialized")
+	portForward := globalPortForward
+
+	// Create Kubernetes client
+	k8sClient, err := e2e.NewK8sClient(cfg.Kubeconfig)
+	require.NoError(t, err, "failed to create Kubernetes client")
+
+	// Create VM client
+	vmClient, err := e2e.NewVMClient("/tmp/shaper-testenv-vm")
+	require.NoError(t, err, "failed to create VM client")
+
+	// Test resources
+	const (
+		profileName    = "e2e-bootable-uuid-profile"
+		assignmentName = "e2e-bootable-uuid-assignment"
+		namespace      = "shaper-system"
+		vmName         = "e2e-tc2-bootable-uuid-vm"
+	)
+
+	// iPXE template that boots Alpine Linux from the network
+	// The e2e_marker in kernel cmdline proves the correct profile was served
+	ipxeTemplate := `#!ipxe
+echo =============================================
+echo E2E Test: Bootable OS UUID Assignment
+echo =============================================
+echo UUID: ${uuid}
+echo Buildarch: ${buildarch}
+echo Profile: e2e-bootable-uuid-profile
+echo =============================================
+echo Booting Alpine Linux (E2E Test - UUID Assignment)
+set mirror http://dl-cdn.alpinelinux.org/alpine
+set release v3.19
+set arch x86_64
+kernel ${mirror}/${release}/releases/${arch}/netboot/vmlinuz-lts alpine_repo=${mirror}/${release}/main modloop=${mirror}/${release}/releases/${arch}/netboot/modloop-lts console=ttyS0,115200 e2e_marker=bootable-os-uuid
+initrd ${mirror}/${release}/releases/${arch}/netboot/initramfs-lts
+boot`
+
+	// Cleanup function
+	cleanup := func() {
+		t.Log("Cleaning up test resources...")
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
+
+		// Delete VM first
+		if err := vmClient.DeleteVM(cleanupCtx, vmName); err != nil {
+			t.Logf("Warning: failed to delete VM %s: %v", vmName, err)
+		}
+
+		// Delete Assignment before Profile
+		if err := e2e.DeleteAssignment(cleanupCtx, k8sClient, assignmentName, namespace); err != nil {
+			t.Logf("Warning: failed to delete Assignment %s: %v", assignmentName, err)
+		}
+
+		// Delete Profile
+		if err := e2e.DeleteProfile(cleanupCtx, k8sClient, profileName, namespace); err != nil {
+			t.Logf("Warning: failed to delete Profile %s: %v", profileName, err)
+		}
+	}
+	t.Cleanup(cleanup)
+
+	// Step 1: Create Profile with bootable iPXE template
+	t.Log("Creating Profile with bootable Alpine Linux iPXE template...")
+	_, err = e2e.CreateProfile(ctx, k8sClient, profileName, namespace, ipxeTemplate)
+	require.NoError(t, err, "failed to create Profile")
+	t.Logf("Created Profile: %s", profileName)
+
+	// Step 2: Create network boot VM (not started) to discover UUID first
+	t.Log("Creating network boot VM (not started) to discover UUID...")
+	vmSpec := e2e.VMSpec{
+		Memory:    2048,
+		VCPUs:     2,
+		Network:   "TestNetwork",
+		BootOrder: []string{"network"},
+		Firmware:  "bios",
+		AutoStart: false, // Don't start yet - need to create Assignment first
+	}
+	err = vmClient.CreateVM(ctx, vmName, vmSpec)
+	require.NoError(t, err, "failed to create VM")
+	t.Logf("Created VM: %s (not started)", vmName)
+
+	// Step 3: Discover VM UUID
+	t.Log("Discovering VM UUID...")
+	vmUUID, err := vmClient.GetVMUUID(ctx, vmName)
+	require.NoError(t, err, "failed to get VM UUID")
+	t.Logf("Discovered VM UUID: %s", vmUUID.String())
+
+	// Step 4: Create UUID-specific Assignment
+	// Note: BIOS iPXE firmware (undionly.kpxe) reports buildarch=i386
+	t.Log("Creating UUID-specific Assignment...")
+	_, err = e2e.CreateUUIDAssignment(ctx, k8sClient, assignmentName, namespace, profileName, vmUUID, "i386")
+	require.NoError(t, err, "failed to create Assignment")
+	t.Logf("Created Assignment: %s (for UUID %s)", assignmentName, vmUUID.String())
+
+	// Step 5: Get shaper-api pod name for log verification
+	podName, err := e2e.GetShaperAPIPodName(ctx, k8sClient)
+	require.NoError(t, err, "failed to get shaper-api pod name")
+	t.Logf("Found shaper-api pod: %s", podName)
+
+	// Verify shaper-api can serve the /ipxe endpoint with the VM's UUID before starting VM.
+	// This ensures the Assignment is visible in shaper-api's cache.
+	t.Log("Verifying shaper-api can serve /ipxe endpoint for VM UUID...")
+	verifyCtx, verifyCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer verifyCancel()
+	err = e2e.WaitForIPXEEndpointReadyWithUUID(verifyCtx, portForward.URL, vmUUID.String(), "i386")
+	require.NoError(t, err, "shaper-api /ipxe endpoint not ready for VM UUID")
+
+	// Record timestamp before VM boot for log filtering
+	startTime := time.Now()
+
+	// Step 6: Start the VM
+	t.Log("Starting VM...")
+	err = vmClient.StartVM(ctx, vmName)
+	require.NoError(t, err, "failed to start VM")
+	t.Logf("Started VM: %s (network boot)", vmName)
+
+	// Step 7: Wait for VM to get an IP (indicates DHCP worked)
+	t.Log("Waiting for VM to get IP address...")
+	vmIP, err := vmClient.GetVMIP(ctx, vmName)
+	require.NoError(t, err, "VM did not get IP address - DHCP may have failed")
+	t.Logf("VM got IP address: %s", vmIP)
+
+	// Step 8: Wait for profile_matched in shaper-api logs
+	t.Log("Waiting for profile_matched in shaper-api logs...")
+	result, err := e2e.WaitForProfileMatched(ctx, cfg.Kubeconfig, e2e.ShaperSystemNamespace,
+		podName, profileName, startTime, 2*time.Minute)
+	if err != nil {
+		// On failure, dump VM console log for debugging
+		consoleLog, consoleErr := vmClient.GetConsoleLog(ctx, vmName)
+		if consoleErr != nil {
+			t.Logf("Failed to get VM console log: %v", consoleErr)
+		} else {
+			t.Logf("=== VM Console Log (%s) ===\n%s\n=== End Console Log ===", vmName, consoleLog)
+		}
+	}
+	require.NoError(t, err, "did not find profile_matched log entry for expected profile")
+	t.Logf("Found profile_matched: Profile=%s, Assignment=%s", result.ProfileName, result.AssignmentName)
+
+	// Step 9: Verify the correct profile was matched
+	require.Equal(t, profileName, result.ProfileName, "expected profile_matched to contain our profile")
+
+	// Step 10: Wait for Alpine boot completion with e2e marker verification
+	// This is the KEY difference from TestUUIDAssignmentBoot_E2E - we verify actual OS boot
+	// and that the correct profile was served via the e2e_marker in kernel cmdline
+	t.Log("Waiting for Alpine Linux boot completion with e2e marker verification...")
+	err = vmClient.WaitForAlpineBootComplete(ctx, vmName, "e2e_marker=bootable-os-uuid", 3*time.Minute)
+	if err != nil {
+		// On failure, dump VM console log for debugging
+		consoleLog, consoleErr := vmClient.GetConsoleLog(ctx, vmName)
+		if consoleErr != nil {
+			t.Logf("Failed to get VM console log: %v", consoleErr)
+		} else {
+			t.Logf("=== VM Console Log (%s) ===\n%s\n=== End Console Log ===", vmName, consoleLog)
+		}
+	}
+	require.NoError(t, err, "VM did not boot Alpine Linux with expected e2e marker - check console log for details")
+	t.Log("Alpine Linux boot completed successfully with e2e marker verified")
+
+	t.Log("TC2 Bootable OS PASSED: UUID-specific assignment network boot flow verified with Alpine Linux")
 }

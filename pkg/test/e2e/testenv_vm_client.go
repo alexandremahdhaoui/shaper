@@ -39,6 +39,8 @@ var (
 	ErrVMGetIP = errors.New("failed to get VM IP address")
 	// ErrVMStart indicates a failure to start a VM.
 	ErrVMStart = errors.New("failed to start VM")
+	// ErrBootTimeout indicates the VM did not boot within the timeout.
+	ErrBootTimeout = errors.New("boot timeout")
 )
 
 // VMSpec defines the specification for creating a VM.
@@ -76,7 +78,14 @@ func NewVMClient(stateDir string) (*VMClient, error) {
 
 // CreateVM creates a new VM with the given name and specification.
 // If AutoStart is false, the VM is defined but not started (useful for UUID discovery).
+// Any existing VM with the same name is deleted first to prevent "domain already exists" errors
+// from leftover VMs of previous failed test runs.
 func (c *VMClient) CreateVM(ctx context.Context, name string, spec VMSpec) error {
+	// Pre-cleanup: delete any leftover VM with the same name from previous runs.
+	// This prevents "domain already exists" errors when a previous test run failed
+	// and didn't clean up properly. DeleteVM handles non-existent VMs gracefully.
+	_ = c.DeleteVM(ctx, name)
+
 	// Generate libvirt XML for the VM
 	xml, err := c.generateVMXML(name, spec)
 	if err != nil {
@@ -119,11 +128,12 @@ func (c *VMClient) StartVM(ctx context.Context, name string) error {
 // DeleteVM deletes a VM by name.
 // This will stop the VM if running and undefine it.
 func (c *VMClient) DeleteVM(ctx context.Context, name string) error {
-	// First try to stop the VM (ignore errors if already stopped)
-	_ = StopVM(name)
+	// First try to destroy (force stop) the VM (ignore errors if already stopped)
+	destroyCmd := exec.CommandContext(ctx, "virsh", "destroy", name)
+	_ = destroyCmd.Run()
 
-	// Wait a bit for the VM to fully stop
-	_ = WaitForVMState(name, "shut off", 10*time.Second)
+	// Give libvirt a moment to clean up after destroy
+	time.Sleep(1 * time.Second)
 
 	// Undefine the VM - try with --nvram first, then without (for BIOS VMs)
 	cmd := exec.CommandContext(ctx, "virsh", "undefine", name, "--nvram")
@@ -272,7 +282,12 @@ func (c *VMClient) getIPFromDnsmasqLeases(ctx context.Context, mac string) (stri
 
 // GetVMUUID returns the UUID of a VM.
 func (c *VMClient) GetVMUUID(ctx context.Context, name string) (uuid.UUID, error) {
-	return GetVMUUID(name)
+	cmd := exec.CommandContext(ctx, "virsh", "domuuid", name)
+	output, err := cmd.Output()
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("failed to get VM UUID: %w", err)
+	}
+	return uuid.Parse(strings.TrimSpace(string(output)))
 }
 
 // GetConsolePath returns the path to the VM's console log file.
@@ -294,11 +309,110 @@ func (c *VMClient) GetConsoleLog(ctx context.Context, name string) (string, erro
 	return string(output), nil
 }
 
+// WaitForBootComplete waits for the VM to complete OS boot by polling the console log.
+// It checks for boot markers: "Linux version", "localhost login:", or "Welcome to".
+// Returns nil when any boot marker is found, or ErrBootTimeout if timeout is reached.
+func (c *VMClient) WaitForBootComplete(ctx context.Context, name string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	pollInterval := 2 * time.Second
+
+	bootMarkers := []string{
+		"Linux version",
+		"localhost login:",
+		"Welcome to",
+	}
+
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		log, err := c.GetConsoleLog(ctx, name)
+		if err == nil {
+			for _, marker := range bootMarkers {
+				if strings.Contains(log, marker) {
+					return nil
+				}
+			}
+		}
+
+		time.Sleep(pollInterval)
+	}
+
+	return errors.Join(ErrBootTimeout, fmt.Errorf("timeout after %v waiting for boot markers in console log", timeout))
+}
+
+// WaitForAlpineBootComplete waits for the VM to complete Alpine Linux boot by polling the console log.
+// It checks for two markers: "Alpine Init" (proves Alpine specifically booted) and the e2eMarker
+// string (proves the correct profile was served via kernel cmdline).
+// Returns nil when BOTH markers are found, or an error with details about which markers were
+// found/missing and the last ~500 chars of console log.
+func (c *VMClient) WaitForAlpineBootComplete(ctx context.Context, name string, e2eMarker string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	pollInterval := 2 * time.Second
+
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		log, err := c.GetConsoleLog(ctx, name)
+		if err == nil {
+			foundAlpineInit := strings.Contains(log, "Alpine Init")
+			foundE2EMarker := strings.Contains(log, e2eMarker)
+
+			if foundAlpineInit && foundE2EMarker {
+				return nil
+			}
+		}
+
+		time.Sleep(pollInterval)
+	}
+
+	// Build descriptive error with found/missing markers and console tail
+	var found, missing []string
+	lastLog := "no console log available"
+
+	log, err := c.GetConsoleLog(ctx, name)
+	if err == nil && log != "" {
+		if len(log) > 500 {
+			lastLog = log[len(log)-500:]
+		} else {
+			lastLog = log
+		}
+		if strings.Contains(log, "Alpine Init") {
+			found = append(found, "Alpine Init")
+		} else {
+			missing = append(missing, "Alpine Init")
+		}
+		if strings.Contains(log, e2eMarker) {
+			found = append(found, e2eMarker)
+		} else {
+			missing = append(missing, e2eMarker)
+		}
+	} else {
+		missing = append(missing, "Alpine Init", e2eMarker)
+	}
+
+	return errors.Join(ErrBootTimeout, fmt.Errorf(
+		"boot timeout after %v: found=[%s] missing=[%s]; last console: %s",
+		timeout,
+		strings.Join(found, ", "),
+		strings.Join(missing, ", "),
+		lastLog,
+	))
+}
+
 // WaitForDnsmasqServerReady waits for the DnsmasqServer VM to be fully ready.
 // This checks:
 // 1. SSH is accessible
 // 2. The iPXE binary exists at /var/lib/tftpboot/undionly.kpxe
 // 3. dnsmasq service is running
+// 4. TFTP is actually serving the iPXE binary (verified via curl tftp://)
 // This is critical because the DnsmasqServer builds the custom iPXE binary during cloud-init,
 // which can take several minutes. VMs that try to PXE boot before this completes will fail.
 func (c *VMClient) WaitForDnsmasqServerReady(ctx context.Context, timeout time.Duration) error {
@@ -312,7 +426,7 @@ func (c *VMClient) WaitForDnsmasqServerReady(ctx context.Context, timeout time.D
 		default:
 		}
 
-		// Check if iPXE binary exists
+		// Check if iPXE binary exists and dnsmasq is active
 		// Use LogLevel=ERROR to suppress SSH warnings that would pollute the output
 		cmd := exec.CommandContext(ctx, "ssh",
 			"-o", "StrictHostKeyChecking=no",

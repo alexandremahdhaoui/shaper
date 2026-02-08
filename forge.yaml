@@ -39,6 +39,8 @@ test:
   - name: e2e
     testenv: alias://e2e-testenv
     runner: go://go-test
+    spec:
+      timeout: "20m"
 
 # ----------------------------------------------------------------------
 # -- build defines the artifacts to build
@@ -376,10 +378,15 @@ engines:
                         # DNS resolution for shaper.local -> bridge gateway (where shaper-api is accessible)
                         address=/shaper.local/192.168.100.1
                         address=/shaper-api.local/192.168.100.1
+                        # TFTP server for serving custom iPXE binary
                         enable-tftp
                         tftp-root=/var/lib/tftpboot
-                        # Serve custom iPXE with embedded script - no chainloading needed
-                        dhcp-boot=undionly.kpxe
+                        # PXE boot: serve custom iPXE binary with explicit TFTP server IP.
+                        # The double comma separates filename,,server-ip (server-name is empty).
+                        # Explicit server IP ensures PXE clients know where to download from.
+                        dhcp-boot=undionly.kpxe,,192.168.100.2
+                        # Log DHCP transactions for debugging PXE boot issues
+                        log-dhcp
                       permissions: "0644"
                     # Custom iPXE embedded script that chainloads to shaper.local
                     - path: /tmp/embed.ipxe
@@ -416,6 +423,9 @@ engines:
                     timeout: "5m"
                     user: ubuntu
                     privateKey: "{{ .Keys.VmSsh.PrivateKeyPath }}"
+                  cloudInit:
+                    enabled: true
+                    timeout: "10m"
 
             - name: PxeClient
               provider: libvirt

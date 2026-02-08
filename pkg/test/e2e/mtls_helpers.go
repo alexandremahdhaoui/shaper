@@ -46,6 +46,8 @@ var (
 	ErrTLSSecretDelete = errors.New("failed to delete TLS secret")
 	// ErrBuildMTLSIPXEISO indicates a failure to build the mTLS iPXE ISO.
 	ErrBuildMTLSIPXEISO = errors.New("failed to build mTLS iPXE ISO")
+	// ErrBuildIPXEISO indicates a failure to build a plain HTTP iPXE ISO.
+	ErrBuildIPXEISO = errors.New("failed to build iPXE ISO")
 	// ErrHelmUpgrade indicates a failure to upgrade a Helm release.
 	ErrHelmUpgrade = errors.New("failed to upgrade Helm release")
 )
@@ -350,6 +352,96 @@ func DowngradeShaperAPIToHTTP(ctx context.Context, kubeconfig string, config MTL
 	}
 
 	return nil
+}
+
+// BuildIPXEISO builds a plain HTTP iPXE ISO on the DnsmasqServer VM.
+// It performs the following steps:
+// 1. Creates an embed.ipxe script that chainloads to shaper-api via HTTP
+// 2. SCPs embed.ipxe to DnsmasqServer:/tmp/boot-iso/
+// 3. SSHs to DnsmasqServer and runs iPXE build with EMBED and NO_WERROR=1
+// 4. SCPs ipxe.iso back to local /tmp/
+// Returns the local path to the built ISO.
+//
+// This is needed because QEMU's built-in iPXE ROM (v1.21.1) does not support
+// SMBIOS 3.0 (needed for ${uuid}) and TFTP chainloading fails. Building a custom
+// iPXE ISO with the embed script and booting from CDROM works reliably.
+func BuildIPXEISO(ctx context.Context, vmClient *VMClient) (string, error) {
+	sshKeyPath := filepath.Join(vmClient.stateDir, "keys", "VmSsh")
+	dnsmasqServerIP := "192.168.100.2"
+	remoteBootISODir := "/tmp/boot-iso"
+	remoteIPXESrcDir := "/tmp/ipxe/src"
+
+	// Create a unique temp file for the ISO to avoid permission issues
+	localISOFile, err := os.CreateTemp("", "boot-ipxe-*.iso")
+	if err != nil {
+		return "", errors.Join(ErrBuildIPXEISO, fmt.Errorf("failed to create temp file for ISO: %w", err))
+	}
+	localISOPath := localISOFile.Name()
+	_ = localISOFile.Close()
+	_ = os.Remove(localISOPath) // Remove so SCP can create it
+
+	// SSH options used for all SSH/SCP commands
+	sshOpts := []string{
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "LogLevel=ERROR",
+		"-o", "ConnectTimeout=30",
+		"-i", sshKeyPath,
+	}
+
+	// 1. Create remote directory
+	if err := runSSHCommand(ctx, sshOpts, dnsmasqServerIP, fmt.Sprintf("mkdir -p %s", remoteBootISODir)); err != nil {
+		return "", errors.Join(ErrBuildIPXEISO, fmt.Errorf("failed to create remote directory: %w", err))
+	}
+
+	// 2. Create and upload embed.ipxe script
+	// Uses HTTP on port 30443 (service port) via a dedicated port-forward.
+	// Port 30080 (NodePort) cannot be used because kube-proxy iptables rules
+	// for the NodePort conflict with kubectl port-forward on the same port,
+	// causing connection timeouts from VMs.
+	embedScript := `#!ipxe
+dhcp
+chain http://192.168.100.1:30443/ipxe?uuid=${uuid}&buildarch=${buildarch:uristring}
+`
+
+	localTempDir, err := os.MkdirTemp("", "boot-iso-*")
+	if err != nil {
+		return "", errors.Join(ErrBuildIPXEISO, fmt.Errorf("failed to create local temp directory: %w", err))
+	}
+	defer func() { _ = os.RemoveAll(localTempDir) }()
+
+	embedLocalPath := filepath.Join(localTempDir, "embed.ipxe")
+	if err := os.WriteFile(embedLocalPath, []byte(embedScript), 0o644); err != nil {
+		return "", errors.Join(ErrBuildIPXEISO, fmt.Errorf("failed to write embed.ipxe: %w", err))
+	}
+
+	embedRemotePath := fmt.Sprintf("%s/embed.ipxe", remoteBootISODir)
+	if err := runSCPUpload(ctx, sshOpts, embedLocalPath, dnsmasqServerIP, embedRemotePath); err != nil {
+		return "", errors.Join(ErrBuildIPXEISO, fmt.Errorf("failed to SCP embed.ipxe: %w", err))
+	}
+
+	// 3. Build iPXE ISO on DnsmasqServer
+	// make clean is important because a previous mTLS build may have left a build with different config.
+	// Install genisoimage, isolinux, and syslinux-common (needed for bootable ipxe.iso generation).
+	buildCmd := fmt.Sprintf(
+		"sudo apt-get update >/dev/null 2>&1 && "+
+			"sudo apt-get install -y genisoimage isolinux syslinux-common >/dev/null 2>&1 || true && "+
+			"sudo chown -R $(id -u):$(id -g) /tmp/ipxe && "+
+			"git config --global --add safe.directory /tmp/ipxe && "+
+			"cd %s && make clean && make bin/ipxe.iso EMBED=%s/embed.ipxe NO_WERROR=1",
+		remoteIPXESrcDir, remoteBootISODir,
+	)
+	if err := runSSHCommand(ctx, sshOpts, dnsmasqServerIP, buildCmd); err != nil {
+		return "", errors.Join(ErrBuildIPXEISO, fmt.Errorf("failed to build iPXE ISO: %w", err))
+	}
+
+	// 4. SCP the built ISO back to local temp path
+	remoteISOPath := fmt.Sprintf("%s/bin/ipxe.iso", remoteIPXESrcDir)
+	if err := runSCPDownload(ctx, sshOpts, dnsmasqServerIP, remoteISOPath, localISOPath); err != nil {
+		return "", errors.Join(ErrBuildIPXEISO, fmt.Errorf("failed to SCP ipxe.iso to local: %w", err))
+	}
+
+	return localISOPath, nil
 }
 
 // BuildMTLSIPXEParams contains parameters for building an mTLS-enabled iPXE ISO.
