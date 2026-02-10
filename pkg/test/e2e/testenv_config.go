@@ -211,11 +211,11 @@ func loadFromStateFile() (*TestenvConfig, error) {
 	if vmState, ok := state.Resources.VMs["PxeClient"]; ok {
 		cfg.VMPXEClientMAC = vmState.State.MAC
 
-		// Get VM IP using virsh domifaddr
-		vmIP, err := getVMIPFromLibvirt(vmState.State.Name)
-		if err != nil {
-			return nil, errors.Join(ErrVMIPNotFound, err)
-		}
+		// Get VM IP using virsh domifaddr.
+		// This is best-effort: when libvirt's built-in DHCP is disabled
+		// (so DnsmasqServer is the sole DHCP provider), virsh domifaddr
+		// won't have lease data. The IP is optional for PXE boot tests.
+		vmIP, _ := getVMIPFromLibvirt(vmState.State.Name)
 		cfg.VMPXEClientIP = vmIP
 	}
 

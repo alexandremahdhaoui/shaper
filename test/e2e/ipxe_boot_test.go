@@ -62,8 +62,8 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	if err := vmClient.WaitForDnsmasqServerReady(ctx, 5*time.Minute); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	if err := vmClient.WaitForDnsmasqServerReady(ctx, 10*time.Minute); err != nil {
 		fmt.Fprintf(os.Stderr, "DnsmasqServer not ready: %v\n", err)
 		cancel()
 		pf.Stop()

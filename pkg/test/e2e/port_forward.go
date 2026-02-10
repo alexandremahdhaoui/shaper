@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 )
 
@@ -48,22 +49,100 @@ var (
 )
 
 // PortForward represents an active kubectl port-forward process.
+// When args and stopCh are set (via SetupGlobalPortForward), it auto-reconnects
+// if the kubectl process dies (e.g. pod sandbox loss, Helm upgrades).
 type PortForward struct {
+	mu     sync.Mutex
 	cmd    *exec.Cmd
 	cancel context.CancelFunc
 	Port   int
 	URL    string
+
+	// Auto-reconnect fields (only set for global port-forward)
+	args   []string
+	stopCh chan struct{}
+	// stderr is captured at creation time to avoid data races with the
+	// testing framework which may reassign os.Stderr during test execution.
+	stderr io.Writer
 }
 
-// Stop terminates the port-forward process.
+// Stop terminates the port-forward process and its auto-reconnect goroutine.
 func (pf *PortForward) Stop() {
+	if pf.stopCh != nil {
+		select {
+		case <-pf.stopCh:
+		default:
+			close(pf.stopCh)
+		}
+	}
+
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
+
 	if pf.cancel != nil {
 		pf.cancel()
 	}
 	if pf.cmd != nil && pf.cmd.Process != nil {
 		_ = pf.cmd.Process.Kill()
-		_ = pf.cmd.Wait()
+		// Only call cmd.Wait() here if there's no auto-reconnect goroutine.
+		// When auto-reconnect is active, its goroutine calls cmd.Wait() and
+		// calling it concurrently here would race on exec.Cmd internal state.
+		if pf.stopCh == nil {
+			_ = pf.cmd.Wait()
+		}
 	}
+}
+
+// startAutoReconnect monitors the kubectl process and restarts it if it dies.
+// This handles pod sandbox loss, pod restarts from Helm upgrades, etc.
+func (pf *PortForward) startAutoReconnect() {
+	go func() {
+		for {
+			pf.mu.Lock()
+			cmd := pf.cmd
+			pf.mu.Unlock()
+
+			if cmd != nil && cmd.Process != nil {
+				_ = cmd.Wait()
+			}
+
+			select {
+			case <-pf.stopCh:
+				return
+			default:
+			}
+
+			select {
+			case <-time.After(2 * time.Second):
+			case <-pf.stopCh:
+				return
+			}
+
+			pf.mu.Lock()
+			if pf.cancel != nil {
+				pf.cancel()
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			newCmd := exec.CommandContext(ctx, "kubectl", pf.args...)
+			newCmd.Stderr = pf.stderr
+			if err := newCmd.Start(); err != nil {
+				cancel()
+				pf.mu.Unlock()
+				fmt.Fprintf(pf.stderr, "port-forward auto-reconnect: restart failed: %v\n", err)
+				select {
+				case <-time.After(3 * time.Second):
+				case <-pf.stopCh:
+					return
+				}
+				continue
+			}
+			pf.cancel = cancel
+			pf.cmd = newCmd
+			pf.mu.Unlock()
+
+			fmt.Fprintf(pf.stderr, "port-forward auto-reconnect: restarted (PID %d)\n", newCmd.Process.Pid)
+		}
+	}()
 }
 
 // SetupGlobalPortForward sets up kubectl port-forward to shaper-api service
@@ -74,21 +153,22 @@ func (pf *PortForward) Stop() {
 //
 // The port-forward must be started BEFORE any VMs attempt to PXE boot.
 func SetupGlobalPortForward(kubeconfig string) (*PortForward, error) {
-	ctx, cancel := context.WithCancel(context.Background())
+	// Capture stderr now to avoid data races with the testing framework
+	// which may reassign os.Stderr during test execution.
+	stderr := os.Stderr
 
-	// Set up port-forward to API service
-	// --address 0.0.0.0 makes it listen on all interfaces including 192.168.100.1
-	cmd := exec.CommandContext(ctx, "kubectl",
+	args := []string{
 		"--kubeconfig", kubeconfig,
 		"port-forward",
 		"--address", "0.0.0.0",
 		"-n", ShaperSystemNamespace,
 		"svc/shaper-api",
 		fmt.Sprintf("%d:%d", ShaperAPINodePort, ShaperAPIServicePort),
-	)
+	}
 
-	// Capture stderr for debugging
-	cmd.Stderr = os.Stderr
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
+	cmd.Stderr = stderr
 
 	if err := cmd.Start(); err != nil {
 		cancel()
@@ -100,7 +180,12 @@ func SetupGlobalPortForward(kubeconfig string) (*PortForward, error) {
 		cancel: cancel,
 		Port:   ShaperAPINodePort,
 		URL:    fmt.Sprintf("http://localhost:%d", ShaperAPINodePort),
+		args:   args,
+		stopCh: make(chan struct{}),
+		stderr: stderr,
 	}
+
+	pf.startAutoReconnect()
 
 	return pf, nil
 }

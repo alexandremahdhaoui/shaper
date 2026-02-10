@@ -346,7 +346,7 @@ engines:
             - name: DnsmasqServer
               provider: libvirt
               spec:
-                memory: 512
+                memory: 1024
                 vcpus: 1
                 network: TestNetwork
                 disk:
@@ -373,18 +373,24 @@ engines:
                         interface=ens2
                         bind-interfaces
                         dhcp-range=192.168.100.50,192.168.100.200,12h
+                        # Use bridge IP as default gateway (libvirt handles NAT there)
+                        dhcp-option=3,192.168.100.1
                         server=8.8.8.8
                         server=8.8.4.4
                         # DNS resolution for shaper.local -> bridge gateway (where shaper-api is accessible)
                         address=/shaper.local/192.168.100.1
                         address=/shaper-api.local/192.168.100.1
-                        # TFTP server for serving custom iPXE binary
+                        # TFTP server for serving custom iPXE binary (non-iPXE PXE clients)
                         enable-tftp
                         tftp-root=/var/lib/tftpboot
-                        # PXE boot: serve custom iPXE binary with explicit TFTP server IP.
-                        # The double comma separates filename,,server-ip (server-name is empty).
-                        # Explicit server IP ensures PXE clients know where to download from.
-                        dhcp-boot=undionly.kpxe,,192.168.100.2
+                        # Detect iPXE clients via option 175 (iPXE encapsulated options).
+                        # QEMU's built-in iPXE ROM is already iPXE, so serve it the
+                        # boot script URL directly via HTTP (bypasses unreliable TFTP chainload).
+                        dhcp-match=set:ipxe,175
+                        # iPXE clients: fetch boot script directly from shaper-api
+                        dhcp-boot=tag:ipxe,http://shaper.local:30080/boot.ipxe
+                        # Non-iPXE PXE clients: TFTP chainload custom iPXE binary
+                        dhcp-boot=tag:!ipxe,undionly.kpxe,,192.168.100.2
                         # Log DHCP transactions for debugging PXE boot issues
                         log-dhcp
                       permissions: "0644"
@@ -409,6 +415,11 @@ engines:
                     - "cd /tmp/ipxe/src && make bin/undionly.kpxe EMBED=embed.ipxe NO_WERROR=1"
                     - "cp /tmp/ipxe/src/bin/undionly.kpxe /var/lib/tftpboot/undionly.kpxe"
                     - "systemctl restart dnsmasq"
+                    # Enable IP forwarding and NAT so VMs using DnsmasqServer as
+                    # their gateway (192.168.100.2) can reach the internet.
+                    # Dnsmasq advertises itself as the gateway by default.
+                    - "sysctl -w net.ipv4.ip_forward=1"
+                    - "iptables -t nat -A POSTROUTING -s 192.168.100.0/24 ! -d 192.168.100.0/24 -j MASQUERADE"
                   users:
                     - name: ubuntu
                       sudo: "ALL=(ALL) NOPASSWD:ALL"
