@@ -128,7 +128,7 @@ func (pf *PortForward) startAutoReconnect() {
 			if err := newCmd.Start(); err != nil {
 				cancel()
 				pf.mu.Unlock()
-				fmt.Fprintf(pf.stderr, "port-forward auto-reconnect: restart failed: %v\n", err)
+				_, _ = fmt.Fprintf(pf.stderr, "port-forward auto-reconnect: restart failed: %v\n", err)
 				select {
 				case <-time.After(3 * time.Second):
 				case <-pf.stopCh:
@@ -140,30 +140,36 @@ func (pf *PortForward) startAutoReconnect() {
 			pf.cmd = newCmd
 			pf.mu.Unlock()
 
-			fmt.Fprintf(pf.stderr, "port-forward auto-reconnect: restarted (PID %d)\n", newCmd.Process.Pid)
+			_, _ = fmt.Fprintf(pf.stderr, "port-forward auto-reconnect: restarted (PID %d)\n", newCmd.Process.Pid)
 		}
 	}()
 }
 
 // SetupGlobalPortForward sets up kubectl port-forward to shaper-api service
-// listening on 0.0.0.0:30080 so that libvirt VMs can reach it via the host IP.
-// This is necessary because dnsmasq is configured to chainload iPXE to
-// http://192.168.100.1:30080/boot.ipxe, and 192.168.100.1 is the libvirt NAT
-// gateway (host IP from VM perspective).
+// on a random available port for the test host to verify API endpoints.
+// VMs reach shaper-api via kube-proxy NodePort (192.168.100.1:30080) directly,
+// so this port-forward is only needed for localhost test verification.
 //
-// The port-forward must be started BEFORE any VMs attempt to PXE boot.
+// The port-forward must be started BEFORE any tests that call shaper-api.
 func SetupGlobalPortForward(kubeconfig string) (*PortForward, error) {
 	// Capture stderr now to avoid data races with the testing framework
 	// which may reassign os.Stderr during test execution.
 	stderr := os.Stderr
 
+	// Find an available port to avoid conflicting with kube-proxy NodePort on 30080
+	listener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		return nil, errors.Join(ErrPortForwardStart, fmt.Errorf("failed to find available port: %w", err))
+	}
+	localPort := listener.Addr().(*net.TCPAddr).Port
+	_ = listener.Close()
+
 	args := []string{
 		"--kubeconfig", kubeconfig,
 		"port-forward",
-		"--address", "0.0.0.0",
 		"-n", ShaperSystemNamespace,
 		"svc/shaper-api",
-		fmt.Sprintf("%d:%d", ShaperAPINodePort, ShaperAPIServicePort),
+		fmt.Sprintf("%d:%d", localPort, ShaperAPIServicePort),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -178,8 +184,8 @@ func SetupGlobalPortForward(kubeconfig string) (*PortForward, error) {
 	pf := &PortForward{
 		cmd:    cmd,
 		cancel: cancel,
-		Port:   ShaperAPINodePort,
-		URL:    fmt.Sprintf("http://localhost:%d", ShaperAPINodePort),
+		Port:   localPort,
+		URL:    fmt.Sprintf("http://localhost:%d", localPort),
 		args:   args,
 		stopCh: make(chan struct{}),
 		stderr: stderr,
@@ -220,15 +226,16 @@ func WaitForPortForwardReady(pf *PortForward, timeout time.Duration) error {
 // VMs on the TestNetwork see this as the host IP (192.168.100.1).
 const BridgeGatewayIP = "192.168.100.1"
 
-// VerifyBridgeAccess checks if the port-forward is accessible from the bridge gateway IP.
-// This is important because VMs chainload iPXE to http://192.168.100.1:30080/boot.ipxe.
-func VerifyBridgeAccess(pf *PortForward) error {
-	bridgeURL := fmt.Sprintf("http://%s:%d/boot.ipxe", BridgeGatewayIP, pf.Port)
+// VerifyBridgeAccess checks if VMs can reach shaper-api via the bridge gateway IP
+// and NodePort. VMs chainload iPXE to http://192.168.100.1:30080/boot.ipxe via
+// kube-proxy NodePort, not via the test port-forward.
+func VerifyBridgeAccess(_ *PortForward) error {
+	bridgeURL := fmt.Sprintf("http://%s:%d/boot.ipxe", BridgeGatewayIP, ShaperAPINodePort)
 	client := &http.Client{Timeout: 5 * time.Second}
 
 	resp, err := client.Get(bridgeURL)
 	if err != nil {
-		return fmt.Errorf("bridge access failed at %s: %w (port-forward may not be binding to bridge interface)", bridgeURL, err)
+		return fmt.Errorf("bridge access failed at %s: %w (kube-proxy NodePort may not be ready)", bridgeURL, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)
