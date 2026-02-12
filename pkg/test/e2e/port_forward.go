@@ -95,13 +95,24 @@ func (pf *PortForward) Stop() {
 
 // startAutoReconnect monitors the kubectl process and restarts it if it dies.
 // This handles pod sandbox loss, pod restarts from Helm upgrades, etc.
+// Uses exponential backoff to avoid spin-looping when the port cannot be bound.
 func (pf *PortForward) startAutoReconnect() {
 	go func() {
+		const (
+			minBackoff = 2 * time.Second
+			maxBackoff = 30 * time.Second
+			// If kubectl runs for at least this long, consider it a successful
+			// reconnect and reset the backoff delay.
+			stableThreshold = 30 * time.Second
+		)
+		backoff := minBackoff
+
 		for {
 			pf.mu.Lock()
 			cmd := pf.cmd
 			pf.mu.Unlock()
 
+			startedAt := time.Now()
 			if cmd != nil && cmd.Process != nil {
 				_ = cmd.Wait()
 			}
@@ -112,10 +123,31 @@ func (pf *PortForward) startAutoReconnect() {
 			default:
 			}
 
+			// Reset backoff if the process ran long enough to be considered stable.
+			if time.Since(startedAt) >= stableThreshold {
+				backoff = minBackoff
+			}
+
 			select {
-			case <-time.After(2 * time.Second):
+			case <-time.After(backoff):
 			case <-pf.stopCh:
 				return
+			}
+
+			// Before starting kubectl, check if the port is already serving
+			// traffic correctly (e.g. another process handles it). If so, wait
+			// for it to stop instead of trying to bind.
+			if pf.portAlreadyServing() {
+				_, _ = fmt.Fprintf(pf.stderr, "port-forward auto-reconnect: port %d already serving traffic, waiting\n", pf.Port)
+				backoff = maxBackoff
+				continue
+			}
+
+			// Check if the port is available before starting kubectl.
+			if !pf.portAvailable() {
+				_, _ = fmt.Fprintf(pf.stderr, "port-forward auto-reconnect: port %d in use, backing off %v\n", pf.Port, backoff)
+				backoff = min(backoff*2, maxBackoff)
+				continue
 			}
 
 			pf.mu.Lock()
@@ -129,11 +161,7 @@ func (pf *PortForward) startAutoReconnect() {
 				cancel()
 				pf.mu.Unlock()
 				_, _ = fmt.Fprintf(pf.stderr, "port-forward auto-reconnect: restart failed: %v\n", err)
-				select {
-				case <-time.After(3 * time.Second):
-				case <-pf.stopCh:
-					return
-				}
+				backoff = min(backoff*2, maxBackoff)
 				continue
 			}
 			pf.cancel = cancel
@@ -145,10 +173,34 @@ func (pf *PortForward) startAutoReconnect() {
 	}()
 }
 
+// portAvailable checks if the port can be bound by attempting a quick listen.
+func (pf *PortForward) portAvailable() bool {
+	addr := fmt.Sprintf(":%d", pf.Port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return false
+	}
+	_ = ln.Close()
+	return true
+}
+
+// portAlreadyServing checks if the port is already serving HTTP traffic correctly.
+// If something else is handling the port and returning valid responses, we should
+// not try to start another kubectl process.
+func (pf *PortForward) portAlreadyServing() bool {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/boot.ipxe", pf.Port))
+	if err != nil {
+		return false
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
 // SetupGlobalPortForward sets up kubectl port-forward to shaper-api service
-// on a random available port for the test host to verify API endpoints.
-// VMs reach shaper-api via kube-proxy NodePort (192.168.100.1:30080) directly,
-// so this port-forward is only needed for localhost test verification.
+// on a random available localhost port for test API verification.
+// VMs reach shaper-api via SetupVMAccessPortForward (0.0.0.0:30080).
 //
 // The port-forward must be started BEFORE any tests that call shaper-api.
 func SetupGlobalPortForward(kubeconfig string) (*PortForward, error) {
@@ -227,24 +279,26 @@ func WaitForPortForwardReady(pf *PortForward, timeout time.Duration) error {
 const BridgeGatewayIP = "192.168.100.1"
 
 // VerifyBridgeAccess checks if VMs can reach shaper-api via the bridge gateway IP
-// and NodePort. VMs chainload iPXE to http://192.168.100.1:30080/boot.ipxe via
-// kube-proxy NodePort, not via the test port-forward.
+// and the VM-access port-forward on 0.0.0.0:30080. This polls for up to 30 seconds
+// to allow the port-forward to become ready.
 func VerifyBridgeAccess(_ *PortForward) error {
 	bridgeURL := fmt.Sprintf("http://%s:%d/boot.ipxe", BridgeGatewayIP, ShaperAPINodePort)
 	client := &http.Client{Timeout: 5 * time.Second}
+	deadline := time.Now().Add(30 * time.Second)
 
-	resp, err := client.Get(bridgeURL)
-	if err != nil {
-		return fmt.Errorf("bridge access failed at %s: %w (kube-proxy NodePort may not be ready)", bridgeURL, err)
+	for time.Now().Before(deadline) {
+		resp, err := client.Get(bridgeURL)
+		if err == nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+		}
+		time.Sleep(1 * time.Second)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, resp.Body)
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("bridge access returned %d at %s", resp.StatusCode, bridgeURL)
-	}
-
-	return nil
+	return fmt.Errorf("bridge access failed at %s after 30s: VM-access port-forward may not be ready", bridgeURL)
 }
 
 // WaitForIPXEEndpointReady polls the /ipxe endpoint until it returns a successful response.
@@ -303,6 +357,47 @@ func SetupGlobalPortForwardWithWait(kubeconfig string, timeout time.Duration) (*
 		pf.Stop()
 		return nil, err
 	}
+
+	return pf, nil
+}
+
+// SetupVMAccessPortForward sets up kubectl port-forward on 0.0.0.0:ShaperAPINodePort
+// so VMs on the libvirt network can reach shaper-api via the bridge gateway IP.
+// VMs resolve shaper.local to 192.168.100.1 (bridge gateway) and connect on port 30080.
+// This port-forward bridges from host 0.0.0.0:30080 → k8s svc/shaper-api:30443.
+// It includes auto-reconnect to survive pod restarts during the test suite.
+func SetupVMAccessPortForward(kubeconfig string) (*PortForward, error) {
+	stderr := os.Stderr
+
+	args := []string{
+		"--kubeconfig", kubeconfig,
+		"port-forward",
+		"--address", "0.0.0.0",
+		"-n", ShaperSystemNamespace,
+		"svc/shaper-api",
+		fmt.Sprintf("%d:%d", ShaperAPINodePort, ShaperAPIServicePort),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
+	cmd.Stderr = stderr
+
+	if err := cmd.Start(); err != nil {
+		cancel()
+		return nil, errors.Join(ErrPortForwardStart, err)
+	}
+
+	pf := &PortForward{
+		cmd:    cmd,
+		cancel: cancel,
+		Port:   ShaperAPINodePort,
+		URL:    fmt.Sprintf("http://%s:%d", BridgeGatewayIP, ShaperAPINodePort),
+		args:   args,
+		stopCh: make(chan struct{}),
+		stderr: stderr,
+	}
+
+	pf.startAutoReconnect()
 
 	return pf, nil
 }

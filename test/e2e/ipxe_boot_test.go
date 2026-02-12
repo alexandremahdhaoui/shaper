@@ -51,8 +51,20 @@ func TestMain(m *testing.M) {
 	}
 	globalPortForward = pf
 
-	if err := e2e.VerifyBridgeAccess(pf); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: bridge access verification failed: %v\n", err)
+	// Set up VM-access port-forward on 0.0.0.0:30080 so VMs on the libvirt network
+	// can reach shaper-api via shaper.local (192.168.100.1:30080).
+	vmPF, err := e2e.SetupVMAccessPortForward(cfg.Kubeconfig)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to setup VM-access port-forward: %v\n", err)
+		pf.Stop()
+		os.Exit(1)
+	}
+
+	if err := e2e.VerifyBridgeAccess(vmPF); err != nil {
+		fmt.Fprintf(os.Stderr, "bridge access verification failed: %v\n", err)
+		vmPF.Stop()
+		pf.Stop()
+		os.Exit(1)
 	}
 
 	vmClient, err := e2e.NewVMClient("/tmp/shaper-testenv-vm")
@@ -72,6 +84,7 @@ func TestMain(m *testing.M) {
 	cancel()
 
 	code := m.Run()
+	vmPF.Stop()
 	pf.Stop()
 	os.Exit(code)
 }
@@ -335,6 +348,11 @@ shell`
 	defer verifyCancel()
 	err = e2e.WaitForIPXEEndpointReady(verifyCtx, portForward.URL, "i386")
 	require.NoError(t, err, "shaper-api /ipxe endpoint not ready")
+
+	// Sleep to ensure the pre-check log entry is outside the --since window
+	// used by GetPodLogs (which adds a 1-second buffer). Without this, the
+	// pre-check's profile_matched entry can be picked up as a false positive.
+	time.Sleep(2 * time.Second)
 
 	// Record timestamp before VM boot for log filtering
 	startTime := time.Now()
@@ -735,6 +753,11 @@ shell`
 	defer verifyCancel()
 	err = e2e.WaitForIPXEEndpointReadyWithUUID(verifyCtx, portForward.URL, vmUUID.String(), "i386")
 	require.NoError(t, err, "shaper-api /ipxe endpoint not ready for VM UUID")
+
+	// Sleep to ensure the pre-check log entry is outside the --since window
+	// used by GetPodLogs (which adds a 1-second buffer). Without this, the
+	// pre-check's profile_matched entry can be picked up as a false positive.
+	time.Sleep(2 * time.Second)
 
 	// Record timestamp before VM boot for log filtering
 	startTime := time.Now()
@@ -1313,6 +1336,11 @@ boot`
 	err = e2e.WaitForIPXEEndpointReady(verifyCtx, portForward.URL, "i386")
 	require.NoError(t, err, "shaper-api /ipxe endpoint not ready")
 
+	// Sleep to ensure the pre-check log entry is outside the --since window
+	// used by GetPodLogs (which adds a 1-second buffer). Without this, the
+	// pre-check's profile_matched entry can be picked up as a false positive.
+	time.Sleep(2 * time.Second)
+
 	// Record timestamp before VM boot for log filtering
 	startTime := time.Now()
 
@@ -1513,6 +1541,11 @@ boot`
 	defer verifyCancel()
 	err = e2e.WaitForIPXEEndpointReadyWithUUID(verifyCtx, portForward.URL, vmUUID.String(), "i386")
 	require.NoError(t, err, "shaper-api /ipxe endpoint not ready for VM UUID")
+
+	// Sleep to ensure the pre-check log entry is outside the --since window
+	// used by GetPodLogs (which adds a 1-second buffer). Without this, the
+	// pre-check's profile_matched entry can be picked up as a false positive.
+	time.Sleep(2 * time.Second)
 
 	// Record timestamp before VM boot for log filtering
 	startTime := time.Now()
