@@ -51,23 +51,36 @@ func TestMain(m *testing.M) {
 	}
 	globalPortForward = pf
 
-	// Set up VM-access port-forward on 0.0.0.0:30080 so VMs on the libvirt network
-	// can reach shaper-api via shaper.local (192.168.100.1:30080).
-	vmPF, err := e2e.SetupVMAccessPortForward(cfg.Kubeconfig)
+	// Determine bridge IP for port-forward binding.
+	// When running in parallel, bind to the specific bridge IP instead of 0.0.0.0.
+	bridgeIP := cfg.BridgeIP
+	if bridgeIP == "" {
+		bridgeIP = e2e.BridgeGatewayIP
+	}
+
+	// Set up VM-access port-forward so VMs on the libvirt network
+	// can reach shaper-api via the bridge gateway IP.
+	vmPF, err := e2e.SetupVMAccessPortForward(cfg.Kubeconfig, bridgeIP)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to setup VM-access port-forward: %v\n", err)
 		pf.Stop()
 		os.Exit(1)
 	}
 
-	if err := e2e.VerifyBridgeAccess(vmPF); err != nil {
+	if err := e2e.VerifyBridgeAccess(bridgeIP); err != nil {
 		fmt.Fprintf(os.Stderr, "bridge access verification failed: %v\n", err)
 		vmPF.Stop()
 		pf.Stop()
 		os.Exit(1)
 	}
 
-	vmClient, err := e2e.NewVMClient("/tmp/shaper-testenv-vm")
+	// Derive network name from prefix
+	networkName := "TestNetwork"
+	if cfg.VMNamePrefix != "" {
+		networkName = cfg.VMNamePrefix + "-TestNetwork"
+	}
+
+	vmClient, err := e2e.NewVMClient("/tmp/shaper-testenv-vm", cfg.VMNamePrefix, cfg.SSHKeyPath, cfg.DnsmasqServerIP, networkName)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to create VM client: %v\n", err)
 		pf.Stop()
@@ -277,7 +290,7 @@ func TestDefaultAssignmentBoot_E2E(t *testing.T) {
 	require.NoError(t, err, "failed to create Kubernetes client")
 
 	// Create VM client
-	vmClient, err := e2e.NewVMClient("/tmp/shaper-testenv-vm")
+	vmClient, err := e2e.NewVMClient("/tmp/shaper-testenv-vm", cfg.VMNamePrefix, cfg.SSHKeyPath, cfg.DnsmasqServerIP, testNetworkName(cfg))
 	require.NoError(t, err, "failed to create VM client")
 
 	// Test resources
@@ -456,7 +469,7 @@ func TestMTLSIPXEBoot_E2E(t *testing.T) {
 	)
 
 	// Bridge IP for server certificate SAN
-	bridgeIP := net.ParseIP(e2e.BridgeGatewayIP)
+	bridgeIP := net.ParseIP(testBridgeIP(cfg))
 	require.NotNil(t, bridgeIP, "failed to parse bridge IP")
 
 	// Create Kubernetes client
@@ -464,7 +477,7 @@ func TestMTLSIPXEBoot_E2E(t *testing.T) {
 	require.NoError(t, err, "failed to create Kubernetes client")
 
 	// Create VM client
-	vmClient, err := e2e.NewVMClient("/tmp/shaper-testenv-vm")
+	vmClient, err := e2e.NewVMClient("/tmp/shaper-testenv-vm", cfg.VMNamePrefix, cfg.SSHKeyPath, cfg.DnsmasqServerIP, testNetworkName(cfg))
 	require.NoError(t, err, "failed to create VM client")
 
 	// Helm config for mTLS
@@ -533,7 +546,7 @@ func TestMTLSIPXEBoot_E2E(t *testing.T) {
 	// VMs connect via bridge IP (192.168.100.1), so we need kubectl port-forward
 	// to forward from 0.0.0.0:30443 to the shaper-api service
 	t.Log("Setting up port-forward for mTLS endpoint...")
-	mtlsPortForward, err := e2e.SetupMTLSPortForward(cfg.Kubeconfig, mtlsNodePort, e2e.ShaperAPIServicePort)
+	mtlsPortForward, err := e2e.SetupMTLSPortForward(cfg.Kubeconfig, testBridgeIP(cfg), mtlsNodePort, e2e.ShaperAPIServicePort)
 	require.NoError(t, err, "failed to set up mTLS port-forward")
 	t.Cleanup(func() {
 		t.Log("Stopping mTLS port-forward...")
@@ -543,7 +556,7 @@ func TestMTLSIPXEBoot_E2E(t *testing.T) {
 	// Wait for port-forward to be ready
 	err = e2e.WaitForMTLSPortForwardReady(mtlsPortForward, 30*time.Second)
 	require.NoError(t, err, "mTLS port-forward not ready")
-	t.Logf("mTLS port-forward ready on 0.0.0.0:%d", mtlsNodePort)
+	t.Logf("mTLS port-forward ready on %s:%d", testBridgeIP(cfg), mtlsNodePort)
 
 	// Step 4: Create Profile with iPXE template
 	ipxeTemplate := `#!ipxe
@@ -575,7 +588,7 @@ shell`
 
 	// Step 7: Build iPXE ISO with embedded client certificate
 	t.Log("Building iPXE ISO with mTLS client certificate...")
-	shaperAPIURL := fmt.Sprintf("https://%s:%d", e2e.BridgeGatewayIP, mtlsNodePort)
+	shaperAPIURL := fmt.Sprintf("https://%s:%d", testBridgeIP(cfg), mtlsNodePort)
 	buildParams := e2e.BuildMTLSIPXEParams{
 		CertSet:      certSet,
 		ShaperAPIURL: shaperAPIURL,
@@ -663,7 +676,7 @@ func TestUUIDAssignmentBoot_E2E(t *testing.T) {
 	require.NoError(t, err, "failed to create Kubernetes client")
 
 	// Create VM client
-	vmClient, err := e2e.NewVMClient("/tmp/shaper-testenv-vm")
+	vmClient, err := e2e.NewVMClient("/tmp/shaper-testenv-vm", cfg.VMNamePrefix, cfg.SSHKeyPath, cfg.DnsmasqServerIP, testNetworkName(cfg))
 	require.NoError(t, err, "failed to create VM client")
 
 	// Test resources
@@ -823,6 +836,23 @@ shell`
 // ptr returns a pointer to the given value.
 func ptr[T any](v T) *T {
 	return &v
+}
+
+// testNetworkName derives the libvirt network name from the testenv config.
+// When running with isolation (VMNamePrefix set), the network name is prefixed.
+func testNetworkName(cfg *e2e.TestenvConfig) string {
+	if cfg.VMNamePrefix != "" {
+		return cfg.VMNamePrefix + "-TestNetwork"
+	}
+	return "TestNetwork"
+}
+
+// testBridgeIP returns the bridge IP from config, falling back to the default.
+func testBridgeIP(cfg *e2e.TestenvConfig) string {
+	if cfg.BridgeIP != "" {
+		return cfg.BridgeIP
+	}
+	return e2e.BridgeGatewayIP
 }
 
 // TestInlineContentResolution_E2E tests that inline content is correctly resolved and served.
@@ -1256,7 +1286,7 @@ func TestBootableOSDefaultAssignment_E2E(t *testing.T) {
 	require.NoError(t, err, "failed to create Kubernetes client")
 
 	// Create VM client
-	vmClient, err := e2e.NewVMClient("/tmp/shaper-testenv-vm")
+	vmClient, err := e2e.NewVMClient("/tmp/shaper-testenv-vm", cfg.VMNamePrefix, cfg.SSHKeyPath, cfg.DnsmasqServerIP, testNetworkName(cfg))
 	require.NoError(t, err, "failed to create VM client")
 
 	// Test resources
@@ -1444,7 +1474,7 @@ func TestBootableOSUUIDAssignment_E2E(t *testing.T) {
 	require.NoError(t, err, "failed to create Kubernetes client")
 
 	// Create VM client
-	vmClient, err := e2e.NewVMClient("/tmp/shaper-testenv-vm")
+	vmClient, err := e2e.NewVMClient("/tmp/shaper-testenv-vm", cfg.VMNamePrefix, cfg.SSHKeyPath, cfg.DnsmasqServerIP, testNetworkName(cfg))
 	require.NoError(t, err, "failed to create VM client")
 
 	// Test resources

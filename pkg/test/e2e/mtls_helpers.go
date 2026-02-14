@@ -361,13 +361,17 @@ func DowngradeShaperAPIToHTTP(ctx context.Context, kubeconfig string, config MTL
 // 3. SSHs to DnsmasqServer and runs iPXE build with EMBED and NO_WERROR=1
 // 4. SCPs ipxe.iso back to local /tmp/
 // Returns the local path to the built ISO.
+// bridgeIP is the bridge gateway IP for the embed script (e.g., "192.168.100.1").
 //
 // This is needed because QEMU's built-in iPXE ROM (v1.21.1) does not support
 // SMBIOS 3.0 (needed for ${uuid}) and TFTP chainloading fails. Building a custom
 // iPXE ISO with the embed script and booting from CDROM works reliably.
-func BuildIPXEISO(ctx context.Context, vmClient *VMClient) (string, error) {
-	sshKeyPath := filepath.Join(vmClient.stateDir, "keys", "VmSsh")
-	dnsmasqServerIP := "192.168.100.2"
+func BuildIPXEISO(ctx context.Context, vmClient *VMClient, bridgeIP string) (string, error) {
+	if bridgeIP == "" {
+		bridgeIP = BridgeGatewayIP
+	}
+	sshKeyPath := vmClient.SSHKeyPath()
+	dnsmasqServerIP := vmClient.DnsmasqIP()
 	remoteBootISODir := "/tmp/boot-iso"
 	remoteIPXESrcDir := "/tmp/ipxe/src"
 
@@ -399,10 +403,10 @@ func BuildIPXEISO(ctx context.Context, vmClient *VMClient) (string, error) {
 	// Port 30080 (NodePort) cannot be used because kube-proxy iptables rules
 	// for the NodePort conflict with kubectl port-forward on the same port,
 	// causing connection timeouts from VMs.
-	embedScript := `#!ipxe
+	embedScript := fmt.Sprintf(`#!ipxe
 dhcp
-chain http://192.168.100.1:30443/ipxe?uuid=${uuid}&buildarch=${buildarch:uristring}
-`
+chain http://%s:30443/ipxe?uuid=${uuid}&buildarch=${buildarch:uristring}
+`, bridgeIP)
 
 	localTempDir, err := os.MkdirTemp("", "boot-iso-*")
 	if err != nil {
@@ -461,8 +465,8 @@ type BuildMTLSIPXEParams struct {
 // 5. SCPs ipxe.iso back to local /tmp/
 // Returns the local path to the built ISO.
 func BuildMTLSIPXEISO(ctx context.Context, vmClient *VMClient, params BuildMTLSIPXEParams) (string, error) {
-	sshKeyPath := filepath.Join(vmClient.stateDir, "keys", "VmSsh")
-	dnsmasqServerIP := "192.168.100.2"
+	sshKeyPath := vmClient.SSHKeyPath()
+	dnsmasqServerIP := vmClient.DnsmasqIP()
 	remoteCertDir := "/tmp/mtls-certs"
 	remoteIPXESrcDir := "/tmp/ipxe/src"
 

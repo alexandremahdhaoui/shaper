@@ -23,6 +23,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"sync"
@@ -279,10 +280,14 @@ func WaitForPortForwardReady(pf *PortForward, timeout time.Duration) error {
 const BridgeGatewayIP = "192.168.100.1"
 
 // VerifyBridgeAccess checks if VMs can reach shaper-api via the bridge gateway IP
-// and the VM-access port-forward on 0.0.0.0:30080. This polls for up to 30 seconds
+// and the VM-access port-forward. This polls for up to 30 seconds
 // to allow the port-forward to become ready.
-func VerifyBridgeAccess(_ *PortForward) error {
-	bridgeURL := fmt.Sprintf("http://%s:%d/boot.ipxe", BridgeGatewayIP, ShaperAPINodePort)
+// bridgeIP is the bridge gateway IP to verify (e.g., "192.168.100.1").
+func VerifyBridgeAccess(bridgeIP string) error {
+	if bridgeIP == "" {
+		bridgeIP = BridgeGatewayIP
+	}
+	bridgeURL := fmt.Sprintf("http://%s:%d/boot.ipxe", bridgeIP, ShaperAPINodePort)
 	client := &http.Client{Timeout: 5 * time.Second}
 	deadline := time.Now().Add(30 * time.Second)
 
@@ -361,18 +366,22 @@ func SetupGlobalPortForwardWithWait(kubeconfig string, timeout time.Duration) (*
 	return pf, nil
 }
 
-// SetupVMAccessPortForward sets up kubectl port-forward on 0.0.0.0:ShaperAPINodePort
+// SetupVMAccessPortForward sets up kubectl port-forward on listenAddr:ShaperAPINodePort
 // so VMs on the libvirt network can reach shaper-api via the bridge gateway IP.
-// VMs resolve shaper.local to 192.168.100.1 (bridge gateway) and connect on port 30080.
-// This port-forward bridges from host 0.0.0.0:30080 → k8s svc/shaper-api:30443.
+// listenAddr should be the bridge IP (e.g., "192.168.100.1") for isolated binding,
+// or "0.0.0.0" for backwards compatibility.
+// This port-forward bridges from host listenAddr:30080 → k8s svc/shaper-api:30443.
 // It includes auto-reconnect to survive pod restarts during the test suite.
-func SetupVMAccessPortForward(kubeconfig string) (*PortForward, error) {
+func SetupVMAccessPortForward(kubeconfig, listenAddr string) (*PortForward, error) {
+	if listenAddr == "" {
+		listenAddr = "0.0.0.0"
+	}
 	stderr := os.Stderr
 
 	args := []string{
 		"--kubeconfig", kubeconfig,
 		"port-forward",
-		"--address", "0.0.0.0",
+		"--address", listenAddr,
 		"-n", ShaperSystemNamespace,
 		"svc/shaper-api",
 		fmt.Sprintf("%d:%d", ShaperAPINodePort, ShaperAPIServicePort),
@@ -391,7 +400,7 @@ func SetupVMAccessPortForward(kubeconfig string) (*PortForward, error) {
 		cmd:    cmd,
 		cancel: cancel,
 		Port:   ShaperAPINodePort,
-		URL:    fmt.Sprintf("http://%s:%d", BridgeGatewayIP, ShaperAPINodePort),
+		URL:    fmt.Sprintf("http://%s:%d", listenAddr, ShaperAPINodePort),
 		args:   args,
 		stopCh: make(chan struct{}),
 		stderr: stderr,
@@ -403,17 +412,20 @@ func SetupVMAccessPortForward(kubeconfig string) (*PortForward, error) {
 }
 
 // SetupMTLSPortForward sets up kubectl port-forward for mTLS testing.
-// It forwards localPort on 0.0.0.0 to the shaper-api service on servicePort.
+// It forwards localPort on listenAddr to the shaper-api service on servicePort.
+// listenAddr should be the bridge IP for isolated binding, or "0.0.0.0" for backwards compat.
 // This is necessary because VMs need to reach the mTLS endpoint via the bridge IP.
-func SetupMTLSPortForward(kubeconfig string, localPort, servicePort int) (*PortForward, error) {
+func SetupMTLSPortForward(kubeconfig, listenAddr string, localPort, servicePort int) (*PortForward, error) {
+	if listenAddr == "" {
+		listenAddr = "0.0.0.0"
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Set up port-forward to API service for mTLS
-	// --address 0.0.0.0 makes it listen on all interfaces including 192.168.100.1
 	cmd := exec.CommandContext(ctx, "kubectl",
 		"--kubeconfig", kubeconfig,
 		"port-forward",
-		"--address", "0.0.0.0",
+		"--address", listenAddr,
 		"-n", ShaperSystemNamespace,
 		"svc/shaper-api",
 		fmt.Sprintf("%d:%d", localPort, servicePort),
@@ -431,7 +443,7 @@ func SetupMTLSPortForward(kubeconfig string, localPort, servicePort int) (*PortF
 		cmd:    cmd,
 		cancel: cancel,
 		Port:   localPort,
-		URL:    fmt.Sprintf("https://localhost:%d", localPort),
+		URL:    fmt.Sprintf("https://%s:%d", listenAddr, localPort),
 	}
 
 	return pf, nil
@@ -444,9 +456,15 @@ func WaitForMTLSPortForwardReady(pf *PortForward, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	pollInterval := 100 * time.Millisecond
 
+	// Determine the address to connect to from the URL.
+	// The URL contains the actual listen address (e.g., "https://192.168.157.1:30443").
+	dialAddr := fmt.Sprintf("localhost:%d", pf.Port)
+	if u, err := url.Parse(pf.URL); err == nil && u.Host != "" {
+		dialAddr = u.Host
+	}
+
 	for time.Now().Before(deadline) {
-		// Try to connect to the port
-		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", pf.Port), 1*time.Second)
+		conn, err := net.DialTimeout("tcp", dialAddr, 1*time.Second)
 		if err == nil {
 			_ = conn.Close()
 			return nil
@@ -455,7 +473,7 @@ func WaitForMTLSPortForwardReady(pf *PortForward, timeout time.Duration) error {
 	}
 
 	return errors.Join(ErrPortForwardNotReady,
-		fmt.Errorf("mTLS port-forward not accepting connections on port %d after %v", pf.Port, timeout))
+		fmt.Errorf("mTLS port-forward not accepting connections on %s after %v", dialAddr, timeout))
 }
 
 // FetchContent fetches content from the /content/{uuid} endpoint.

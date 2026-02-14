@@ -64,36 +64,74 @@ type VMSpec struct {
 
 // VMClient manages VMs using virsh commands.
 type VMClient struct {
-	stateDir string
+	stateDir    string
+	namePrefix  string // prefix for all VM names in libvirt (for parallel isolation)
+	sshKeyPath  string // path to SSH key for DnsmasqServer access
+	dnsmasqIP   string // DnsmasqServer IP address
+	networkName string // actual libvirt network name (may be prefixed)
 }
 
-// NewVMClient creates a new VMClient.
-// The stateDir is used for storing temporary VM-related files.
-func NewVMClient(stateDir string) (*VMClient, error) {
+// NewVMClient creates a new VMClient with isolation parameters.
+// namePrefix is prepended to all VM names in virsh commands (empty means no prefix).
+// sshKeyPath is the path to the SSH key for DnsmasqServer access.
+// dnsmasqIP is the DnsmasqServer IP address (defaults to "192.168.100.2" if empty).
+// networkName is the libvirt network name for VMs (defaults to "TestNetwork" if empty).
+func NewVMClient(stateDir, namePrefix, sshKeyPath, dnsmasqIP, networkName string) (*VMClient, error) {
 	if stateDir == "" {
 		stateDir = "/tmp/shaper-testenv-vm"
 	}
-	return &VMClient{stateDir: stateDir}, nil
+	if sshKeyPath == "" {
+		sshKeyPath = fmt.Sprintf("%s/keys/VmSsh", stateDir)
+	}
+	if dnsmasqIP == "" {
+		dnsmasqIP = "192.168.100.2"
+	}
+	if networkName == "" {
+		networkName = "TestNetwork"
+	}
+	return &VMClient{
+		stateDir:    stateDir,
+		namePrefix:  namePrefix,
+		sshKeyPath:  sshKeyPath,
+		dnsmasqIP:   dnsmasqIP,
+		networkName: networkName,
+	}, nil
+}
+
+// prefixedVMName returns the VM name with the isolation prefix prepended.
+// If no prefix is set, returns the name unchanged.
+func (c *VMClient) prefixedVMName(name string) string {
+	if c.namePrefix == "" {
+		return name
+	}
+	return c.namePrefix + "-" + name
 }
 
 // CreateVM creates a new VM with the given name and specification.
 // If AutoStart is false, the VM is defined but not started (useful for UUID discovery).
 // Any existing VM with the same name is deleted first to prevent "domain already exists" errors
 // from leftover VMs of previous failed test runs.
+// The VM name is automatically prefixed with namePrefix for parallel isolation.
+// The spec.Network is overridden with the VMClient's networkName.
 func (c *VMClient) CreateVM(ctx context.Context, name string, spec VMSpec) error {
+	// Override network with the configured (possibly prefixed) network name
+	spec.Network = c.networkName
+
+	virshName := c.prefixedVMName(name)
+
 	// Pre-cleanup: delete any leftover VM with the same name from previous runs.
 	// This prevents "domain already exists" errors when a previous test run failed
 	// and didn't clean up properly. DeleteVM handles non-existent VMs gracefully.
 	_ = c.DeleteVM(ctx, name)
 
-	// Generate libvirt XML for the VM
-	xml, err := c.generateVMXML(name, spec)
+	// Generate libvirt XML for the VM (uses virshName for the actual libvirt domain)
+	xml, err := c.generateVMXML(virshName, spec)
 	if err != nil {
 		return errors.Join(ErrVMCreate, err)
 	}
 
 	// Write XML to temporary file
-	xmlPath := fmt.Sprintf("%s/%s.xml", c.stateDir, name)
+	xmlPath := fmt.Sprintf("%s/%s.xml", c.stateDir, virshName)
 	cmd := exec.CommandContext(ctx, "bash", "-c", fmt.Sprintf("mkdir -p %s && cat > %s", c.stateDir, xmlPath))
 	cmd.Stdin = strings.NewReader(xml)
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -116,30 +154,32 @@ func (c *VMClient) CreateVM(ctx context.Context, name string, spec VMSpec) error
 	return nil
 }
 
-// StartVM starts a VM by name.
+// StartVM starts a VM by name (automatically prefixed).
 func (c *VMClient) StartVM(ctx context.Context, name string) error {
-	cmd := exec.CommandContext(ctx, "virsh", "start", name)
+	cmd := exec.CommandContext(ctx, "virsh", "start", c.prefixedVMName(name))
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return errors.Join(ErrVMStart, errors.New(string(output)), err)
 	}
 	return nil
 }
 
-// DeleteVM deletes a VM by name.
+// DeleteVM deletes a VM by name (automatically prefixed).
 // This will stop the VM if running and undefine it.
 func (c *VMClient) DeleteVM(ctx context.Context, name string) error {
+	virshName := c.prefixedVMName(name)
+
 	// First try to destroy (force stop) the VM (ignore errors if already stopped)
-	destroyCmd := exec.CommandContext(ctx, "virsh", "destroy", name)
+	destroyCmd := exec.CommandContext(ctx, "virsh", "destroy", virshName)
 	_ = destroyCmd.Run()
 
 	// Give libvirt a moment to clean up after destroy
 	time.Sleep(1 * time.Second)
 
 	// Undefine the VM - try with --nvram first, then without (for BIOS VMs)
-	cmd := exec.CommandContext(ctx, "virsh", "undefine", name, "--nvram")
+	cmd := exec.CommandContext(ctx, "virsh", "undefine", virshName, "--nvram")
 	if _, err := cmd.CombinedOutput(); err != nil {
 		// Try without --nvram for BIOS VMs
-		cmd = exec.CommandContext(ctx, "virsh", "undefine", name)
+		cmd = exec.CommandContext(ctx, "virsh", "undefine", virshName)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			// Ignore error if VM doesn't exist
@@ -154,9 +194,11 @@ func (c *VMClient) DeleteVM(ctx context.Context, name string) error {
 	return nil
 }
 
-// GetVMIP returns the IP address of a VM.
+// GetVMIP returns the IP address of a VM (name is automatically prefixed).
 // It uses virsh domifaddr to query the VM's network interface.
 func (c *VMClient) GetVMIP(ctx context.Context, name string) (string, error) {
+	virshName := c.prefixedVMName(name)
+
 	// Wait for the VM to get an IP (max 60 seconds)
 	deadline := time.Now().Add(60 * time.Second)
 	pollInterval := 2 * time.Second
@@ -168,7 +210,7 @@ func (c *VMClient) GetVMIP(ctx context.Context, name string) (string, error) {
 		default:
 		}
 
-		ip, err := c.tryGetVMIP(ctx, name)
+		ip, err := c.tryGetVMIP(ctx, virshName)
 		if err == nil && ip != "" {
 			return ip, nil
 		}
@@ -182,6 +224,7 @@ func (c *VMClient) GetVMIP(ctx context.Context, name string) (string, error) {
 // tryGetVMIP attempts to get the VM IP once.
 // It first tries virsh domifaddr (requires guest agent), then falls back to
 // checking dnsmasq leases (for PXE boot VMs without guest agent).
+// Note: name should already be the prefixed virsh domain name.
 func (c *VMClient) tryGetVMIP(ctx context.Context, name string) (string, error) {
 	// Method 1: Try virsh domifaddr (requires guest agent)
 	cmd := exec.CommandContext(ctx, "virsh", "domifaddr", name)
@@ -246,17 +289,16 @@ func (c *VMClient) getVMMAC(ctx context.Context, name string) (string, error) {
 }
 
 // getIPFromDnsmasqLeases checks dnsmasq leases for a given MAC address.
-// It SSHs to the DnsmasqServer (192.168.100.2) to read the leases file.
+// It SSHs to the DnsmasqServer to read the leases file.
 func (c *VMClient) getIPFromDnsmasqLeases(ctx context.Context, mac string) (string, error) {
 	// SSH to DnsmasqServer to read leases
-	sshKeyPath := fmt.Sprintf("%s/keys/VmSsh", c.stateDir)
 	cmd := exec.CommandContext(ctx, "ssh",
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "LogLevel=ERROR",
 		"-o", "ConnectTimeout=5",
-		"-i", sshKeyPath,
-		"ubuntu@192.168.100.2",
+		"-i", c.sshKeyPath,
+		fmt.Sprintf("ubuntu@%s", c.dnsmasqIP),
 		"cat /var/lib/misc/dnsmasq.leases")
 	output, err := cmd.Output()
 	if err != nil {
@@ -280,9 +322,9 @@ func (c *VMClient) getIPFromDnsmasqLeases(ctx context.Context, mac string) (stri
 	return "", nil
 }
 
-// GetVMUUID returns the UUID of a VM.
+// GetVMUUID returns the UUID of a VM (name is automatically prefixed).
 func (c *VMClient) GetVMUUID(ctx context.Context, name string) (uuid.UUID, error) {
-	cmd := exec.CommandContext(ctx, "virsh", "domuuid", name)
+	cmd := exec.CommandContext(ctx, "virsh", "domuuid", c.prefixedVMName(name))
 	output, err := cmd.Output()
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("failed to get VM UUID: %w", err)
@@ -291,8 +333,9 @@ func (c *VMClient) GetVMUUID(ctx context.Context, name string) (uuid.UUID, error
 }
 
 // GetConsolePath returns the path to the VM's console log file.
+// The name is automatically prefixed to match the actual libvirt domain name.
 func (c *VMClient) GetConsolePath(name string) string {
-	return fmt.Sprintf("/tmp/%s-console.log", name)
+	return fmt.Sprintf("/tmp/%s-console.log", c.prefixedVMName(name))
 }
 
 // GetConsoleLog reads the VM's console log.
@@ -417,7 +460,6 @@ func (c *VMClient) WaitForAlpineBootComplete(ctx context.Context, name string, e
 // which can take several minutes. VMs that try to PXE boot before this completes will fail.
 func (c *VMClient) WaitForDnsmasqServerReady(ctx context.Context, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
-	sshKeyPath := fmt.Sprintf("%s/keys/VmSsh", c.stateDir)
 
 	for time.Now().Before(deadline) {
 		select {
@@ -433,8 +475,8 @@ func (c *VMClient) WaitForDnsmasqServerReady(ctx context.Context, timeout time.D
 			"-o", "UserKnownHostsFile=/dev/null",
 			"-o", "LogLevel=ERROR",
 			"-o", "ConnectTimeout=5",
-			"-i", sshKeyPath,
-			"ubuntu@192.168.100.2",
+			"-i", c.sshKeyPath,
+			fmt.Sprintf("ubuntu@%s", c.dnsmasqIP),
 			"test -f /var/lib/tftpboot/undionly.kpxe && systemctl is-active dnsmasq")
 		output, err := cmd.CombinedOutput()
 		if err == nil {
@@ -448,6 +490,21 @@ func (c *VMClient) WaitForDnsmasqServerReady(ctx context.Context, timeout time.D
 	}
 
 	return errors.New("timeout waiting for DnsmasqServer to be ready (iPXE binary and dnsmasq)")
+}
+
+// SSHKeyPath returns the SSH key path used for DnsmasqServer access.
+func (c *VMClient) SSHKeyPath() string {
+	return c.sshKeyPath
+}
+
+// DnsmasqIP returns the DnsmasqServer IP address.
+func (c *VMClient) DnsmasqIP() string {
+	return c.dnsmasqIP
+}
+
+// StateDir returns the state directory path.
+func (c *VMClient) StateDir() string {
+	return c.stateDir
 }
 
 // vmXMLTemplate is the libvirt domain XML template for PXE boot VMs.

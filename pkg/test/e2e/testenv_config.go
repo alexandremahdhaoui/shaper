@@ -53,6 +53,14 @@ type TestenvConfig struct {
 	// ProjectRoot is the absolute path to the project root directory.
 	// This is used to locate Helm charts and other project resources.
 	ProjectRoot string
+
+	// Isolation fields for parallel test execution
+	// VMNamePrefix is a short hash prefix applied to all libvirt resource names.
+	// Set by testenv-vm orchestrator via TESTENV_VM_NAME_PREFIX env var.
+	VMNamePrefix string
+	// DnsmasqServerIP is the IP address of the DnsmasqServer VM on the isolated subnet.
+	// Derived from TESTENV_VM_DNSMASQSERVER_IP env var.
+	DnsmasqServerIP string
 }
 
 // testenvVMState represents the structure of the testenv-vm state file
@@ -126,6 +134,10 @@ func loadFromEnv() (*TestenvConfig, error) {
 
 	cfg.BridgeInterface = os.Getenv("TESTENV_NETWORK_TESTNETWORK_INTERFACE")
 	// Interface name is optional
+
+	// Load isolation config for parallel test execution
+	cfg.VMNamePrefix = os.Getenv("TESTENV_VM_NAME_PREFIX")
+	cfg.DnsmasqServerIP = os.Getenv("TESTENV_VM_DNSMASQSERVER_IP")
 
 	// Load Kubernetes config - this is required
 	cfg.Kubeconfig = os.Getenv("KUBECONFIG")
@@ -218,6 +230,10 @@ func loadFromStateFile() (*TestenvConfig, error) {
 		vmIP, _ := getVMIPFromLibvirt(vmState.State.Name)
 		cfg.VMPXEClientIP = vmIP
 	}
+
+	// Load isolation config for parallel test execution (from env, even in state-file path)
+	cfg.VMNamePrefix = os.Getenv("TESTENV_VM_NAME_PREFIX")
+	cfg.DnsmasqServerIP = os.Getenv("TESTENV_VM_DNSMASQSERVER_IP")
 
 	// Load Kubernetes config from environment (this should still be set by forge)
 	cfg.Kubeconfig = os.Getenv("KUBECONFIG")
