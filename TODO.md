@@ -1,6 +1,6 @@
 # TODOs
 
-- [ ] [0001]: Add a true e2e tests that spawns up a VM that must boot using ipxer
+- [x] [0001]: Add a true e2e tests that spawns up a VM that must boot using ipxer
   - Multiple test cases
     1. Boot using default assignment for a build-arch
     1. Boot using specific assignment using machine UUID

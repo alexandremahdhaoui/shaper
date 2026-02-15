@@ -1,4 +1,4 @@
-# IPXER-API
+# shaper-api
 
 This directory contains the source code for the `shaper-api` binary.
 
@@ -13,3 +13,4 @@ The `shaper-api` binary is an HTTP server that provides an API for managing iPXE
 ## See Also
 
 - [Main README](../../README.md)
+- [Design](../../DESIGN.md)

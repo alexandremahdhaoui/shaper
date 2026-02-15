@@ -88,4 +88,4 @@ helm uninstall shaper-webhooks
 
 - [API Deployment](./api-deployment.md) - deploy shaper-api first
 - [Helm Values](../charts/shaper-webhooks/values.yaml) - full configuration
-- [Architecture](../ARCHITECTURE.md) - system design
+- [Design](../DESIGN.md) - system design

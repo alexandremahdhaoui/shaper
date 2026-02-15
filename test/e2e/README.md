@@ -58,4 +58,4 @@ Variables set by `forge test run e2e`:
 ## Links
 
 - [Main README](../../README.md)
-- [Architecture](../../ARCHITECTURE.md)
+- [Design](../../DESIGN.md)

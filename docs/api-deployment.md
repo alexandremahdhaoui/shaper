@@ -160,5 +160,5 @@ helm uninstall shaper-crds  # Warning: deletes all Profiles/Assignments
 ## Links
 
 - [Webhook Deployment](./webhook-deployment.md) - admission webhooks setup
-- [Architecture](../ARCHITECTURE.md) - system design
+- [Design](../DESIGN.md) - system design
 - [Helm Values](../charts/shaper-api/values.yaml) - full configuration reference
