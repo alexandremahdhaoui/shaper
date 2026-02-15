@@ -465,12 +465,17 @@ func TestMTLSIPXEBoot_E2E(t *testing.T) {
 		assignmentName = "e2e-mtls-assignment"
 		tlsSecretName  = "e2e-mtls-certs"
 		namespace      = "shaper-system"
-		mtlsNodePort   = 30443
 	)
 
 	// Bridge IP for server certificate SAN
 	bridgeIP := net.ParseIP(testBridgeIP(cfg))
 	require.NotNil(t, bridgeIP, "failed to parse bridge IP")
+
+	// Use a pre-allocated NodePort for mTLS (allocated by forge testenv create via
+	// allocateOpenPort in forge.yaml, surfaced as PORTALLOC_SHAPER_E2E_MTLS env var).
+	// This ensures the port is in the valid K8s NodePort range (30000-32767).
+	mtlsNodePort := e2e.GetMTLSNodePort()
+	t.Logf("Using mTLS NodePort: %d", mtlsNodePort)
 
 	// Create Kubernetes client
 	k8sClient, err := e2e.NewK8sClient(cfg.Kubeconfig)
@@ -521,6 +526,19 @@ func TestMTLSIPXEBoot_E2E(t *testing.T) {
 		if err := e2e.DeleteTLSSecret(cleanupCtx, k8sClient, tlsSecretName, namespace); err != nil {
 			t.Logf("Warning: failed to delete TLS secret %s: %v", tlsSecretName, err)
 		}
+
+		// Re-establish the global port-forward. The helm upgrade/downgrade cycle
+		// restarts the shaper-api pod, which kills the port-forward process that
+		// was targeting the old pod. Subsequent tests need a fresh port-forward.
+		t.Log("Re-establishing global port-forward after helm downgrade...")
+		globalPortForward.Stop()
+		newPF, err := e2e.SetupGlobalPortForwardWithWait(cfg.Kubeconfig, 60*time.Second)
+		if err != nil {
+			t.Logf("Warning: failed to re-establish global port-forward: %v", err)
+		} else {
+			globalPortForward = newPF
+			t.Log("Global port-forward re-established successfully")
+		}
 	}
 	t.Cleanup(cleanup)
 
@@ -544,7 +562,7 @@ func TestMTLSIPXEBoot_E2E(t *testing.T) {
 
 	// Step 3b: Set up port-forward for mTLS endpoint
 	// VMs connect via bridge IP (192.168.100.1), so we need kubectl port-forward
-	// to forward from 0.0.0.0:30443 to the shaper-api service
+	// to forward from 0.0.0.0:<dynamic-port> to the shaper-api service
 	t.Log("Setting up port-forward for mTLS endpoint...")
 	mtlsPortForward, err := e2e.SetupMTLSPortForward(cfg.Kubeconfig, testBridgeIP(cfg), mtlsNodePort, e2e.ShaperAPIServicePort)
 	require.NoError(t, err, "failed to set up mTLS port-forward")

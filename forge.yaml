@@ -309,9 +309,12 @@ engines:
                   - name: testenv-lcr-credentials
                 service:
                   type: NodePort
-                  nodePort: 30080
+                  nodePort: '{{ allocateOpenPort "0.0.0.0" "shaper-e2e-api" 30000 32767 }}'
+                # Pre-allocate mTLS NodePort for e2e tests (value unused by chart, but
+                # the allocateOpenPort call registers it as PORTALLOC_SHAPER_E2E_MTLS).
+                mtlsNodePort: '{{ allocateOpenPort "0.0.0.0" "shaper-e2e-mtls" 30000 32767 }}'
       # VM infrastructure for E2E testing
-      - engine: go://github.com/alexandremahdhaoui/testenv-vm/cmd/testenv-vm@v0.12.0
+      - engine: go://github.com/alexandremahdhaoui/testenv-vm/cmd/testenv-vm@v0.12.1
         deferTemplates: true
         spec:
           # Use /tmp for state directory so libvirt can access disk images
@@ -322,7 +325,7 @@ engines:
                 source: ubuntu:24.04
           providers:
             - name: libvirt
-              engine: go://github.com/alexandremahdhaoui/testenv-vm/cmd/providers/testenv-vm-provider-libvirt@v0.12.0
+              engine: go://github.com/alexandremahdhaoui/testenv-vm/cmd/providers/testenv-vm-provider-libvirt@v0.12.1
               default: true
               spec: {}
 
@@ -402,7 +405,7 @@ engines:
                         #!ipxe
                         dhcp
                         :retry
-                        chain http://shaper.local:30080/ipxe?uuid=${uuid}&buildarch=${buildarch:uristring} || goto retry
+                        chain http://shaper.local:{{ .Env.PORTALLOC_SHAPER_E2E_API }}/ipxe?uuid=${uuid}&buildarch=${buildarch:uristring} || goto retry
                       permissions: "0644"
                   runcmd:
                     - "systemctl disable --now systemd-resolved"

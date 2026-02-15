@@ -356,12 +356,14 @@ func DowngradeShaperAPIToHTTP(ctx context.Context, kubeconfig string, config MTL
 
 // BuildIPXEISO builds a plain HTTP iPXE ISO on the DnsmasqServer VM.
 // It performs the following steps:
-// 1. Creates an embed.ipxe script that chainloads to shaper-api via HTTP
+// 1. Creates an embed.ipxe script that chainloads to the given shaperAPIURL via HTTP
 // 2. SCPs embed.ipxe to DnsmasqServer:/tmp/boot-iso/
 // 3. SSHs to DnsmasqServer and runs iPXE build with EMBED and NO_WERROR=1
 // 4. SCPs ipxe.iso back to local /tmp/
 // Returns the local path to the built ISO.
 // bridgeIP is the bridge gateway IP for the embed script (e.g., "192.168.100.1").
+//
+// shaperAPIURL is the base URL for the shaper-api endpoint (e.g., "http://192.168.100.1:41023").
 //
 // This is needed because QEMU's built-in iPXE ROM (v1.21.1) does not support
 // SMBIOS 3.0 (needed for ${uuid}) and TFTP chainloading fails. Building a custom
@@ -405,8 +407,8 @@ func BuildIPXEISO(ctx context.Context, vmClient *VMClient, bridgeIP string) (str
 	// causing connection timeouts from VMs.
 	embedScript := fmt.Sprintf(`#!ipxe
 dhcp
-chain http://%s:30443/ipxe?uuid=${uuid}&buildarch=${buildarch:uristring}
-`, bridgeIP)
+chain http://%s:%d/ipxe?uuid=${uuid}&buildarch=${buildarch:uristring}
+`, bridgeIP, ShaperAPINodePort)
 
 	localTempDir, err := os.MkdirTemp("", "boot-iso-*")
 	if err != nil {

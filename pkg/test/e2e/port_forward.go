@@ -26,19 +26,46 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"sync"
 	"time"
 )
 
 const (
-	// ShaperAPINodePort is the NodePort used by shaper-api service.
-	// This must match the nodePort configured in forge.yaml for shaper-api.
-	ShaperAPINodePort = 30080
-
 	// ShaperAPIServicePort is the port the shaper-api service listens on.
 	// This is config.apiServer.port in values.yaml (default: 30443).
 	ShaperAPIServicePort = 30443
 )
+
+// ShaperAPINodePort is the NodePort for VM access to shaper-api.
+// Initialized from PORTALLOC_SHAPER_E2E_API env var with fallback to 30080.
+var ShaperAPINodePort = GetShaperAPINodePort()
+
+// GetShaperAPINodePort returns the NodePort for shaper-api.
+// It reads from the PORTALLOC_SHAPER_E2E_API env var (set by forge testenv create)
+// with a fallback to 30080 for manual/legacy usage.
+func GetShaperAPINodePort() int {
+	if v := os.Getenv("PORTALLOC_SHAPER_E2E_API"); v != "" {
+		port, err := strconv.Atoi(v)
+		if err == nil {
+			return port
+		}
+	}
+	return 30080
+}
+
+// GetMTLSNodePort returns the NodePort for mTLS testing.
+// It reads from the PORTALLOC_SHAPER_E2E_MTLS env var (set by forge testenv create)
+// with a fallback to 30443 for manual/legacy usage.
+func GetMTLSNodePort() int {
+	if v := os.Getenv("PORTALLOC_SHAPER_E2E_MTLS"); v != "" {
+		port, err := strconv.Atoi(v)
+		if err == nil {
+			return port
+		}
+	}
+	return 30443
+}
 
 var (
 	// ErrPortForwardStart indicates the port-forward could not be started.
@@ -62,12 +89,15 @@ type PortForward struct {
 	// Auto-reconnect fields (only set for global port-forward)
 	args   []string
 	stopCh chan struct{}
+	doneCh chan struct{} // closed when auto-reconnect goroutine exits
 	// stderr is captured at creation time to avoid data races with the
 	// testing framework which may reassign os.Stderr during test execution.
 	stderr io.Writer
 }
 
 // Stop terminates the port-forward process and its auto-reconnect goroutine.
+// It blocks until the auto-reconnect goroutine has fully exited to prevent
+// lingering I/O that would cause "Test I/O incomplete" errors.
 func (pf *PortForward) Stop() {
 	if pf.stopCh != nil {
 		select {
@@ -78,8 +108,6 @@ func (pf *PortForward) Stop() {
 	}
 
 	pf.mu.Lock()
-	defer pf.mu.Unlock()
-
 	if pf.cancel != nil {
 		pf.cancel()
 	}
@@ -92,6 +120,13 @@ func (pf *PortForward) Stop() {
 			_ = pf.cmd.Wait()
 		}
 	}
+	pf.mu.Unlock()
+
+	// Wait for the auto-reconnect goroutine to fully exit so that all
+	// stderr I/O is complete before returning to the caller.
+	if pf.doneCh != nil {
+		<-pf.doneCh
+	}
 }
 
 // startAutoReconnect monitors the kubectl process and restarts it if it dies.
@@ -99,6 +134,7 @@ func (pf *PortForward) Stop() {
 // Uses exponential backoff to avoid spin-looping when the port cannot be bound.
 func (pf *PortForward) startAutoReconnect() {
 	go func() {
+		defer close(pf.doneCh)
 		const (
 			minBackoff = 2 * time.Second
 			maxBackoff = 30 * time.Second
@@ -157,7 +193,7 @@ func (pf *PortForward) startAutoReconnect() {
 			}
 			ctx, cancel := context.WithCancel(context.Background())
 			newCmd := exec.CommandContext(ctx, "kubectl", pf.args...)
-			newCmd.Stderr = pf.stderr
+			// Do NOT inherit pf.stderr; see SetupGlobalPortForward comment.
 			if err := newCmd.Start(); err != nil {
 				cancel()
 				pf.mu.Unlock()
@@ -227,7 +263,10 @@ func SetupGlobalPortForward(kubeconfig string) (*PortForward, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, "kubectl", args...)
-	cmd.Stderr = stderr
+	// Do NOT set cmd.Stderr = os.Stderr. Letting kubectl inherit the test
+	// runner's stderr FD causes "Test I/O incomplete" because the FD stays
+	// open even after killing the process. Auto-reconnect logs go through
+	// pf.stderr via fmt.Fprintf instead.
 
 	if err := cmd.Start(); err != nil {
 		cancel()
@@ -241,6 +280,7 @@ func SetupGlobalPortForward(kubeconfig string) (*PortForward, error) {
 		URL:    fmt.Sprintf("http://localhost:%d", localPort),
 		args:   args,
 		stopCh: make(chan struct{}),
+		doneCh: make(chan struct{}),
 		stderr: stderr,
 	}
 
@@ -389,7 +429,7 @@ func SetupVMAccessPortForward(kubeconfig, listenAddr string) (*PortForward, erro
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, "kubectl", args...)
-	cmd.Stderr = stderr
+	// Do NOT set cmd.Stderr; see SetupGlobalPortForward comment.
 
 	if err := cmd.Start(); err != nil {
 		cancel()
@@ -403,6 +443,7 @@ func SetupVMAccessPortForward(kubeconfig, listenAddr string) (*PortForward, erro
 		URL:    fmt.Sprintf("http://%s:%d", listenAddr, ShaperAPINodePort),
 		args:   args,
 		stopCh: make(chan struct{}),
+		doneCh: make(chan struct{}),
 		stderr: stderr,
 	}
 
@@ -431,8 +472,7 @@ func SetupMTLSPortForward(kubeconfig, listenAddr string, localPort, servicePort 
 		fmt.Sprintf("%d:%d", localPort, servicePort),
 	)
 
-	// Capture stderr for debugging
-	cmd.Stderr = os.Stderr
+	// Do NOT set cmd.Stderr; see SetupGlobalPortForward comment.
 
 	if err := cmd.Start(); err != nil {
 		cancel()
