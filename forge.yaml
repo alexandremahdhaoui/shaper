@@ -320,9 +320,33 @@ engines:
           # Use /tmp for state directory so libvirt can access disk images
           stateDir: /tmp/shaper-testenv-vm
           images:
-            - name: ubuntu
+            - name: dnsmasq-base
               spec:
                 source: ubuntu:24.04
+                customize:
+                  packages:
+                    - dnsmasq
+                    - curl
+                    - git
+                    - make
+                    - gcc
+                    - binutils
+                    - perl
+                    - liblzma-dev
+                  runcmd:
+                    - "git clone https://github.com/ipxe/ipxe.git /opt/ipxe"
+                    - "cd /opt/ipxe && git checkout fa62213231a882eb6bbcefa7ad1106bdb9aaeae2"
+                    - |
+                      cat > /opt/ipxe/src/embed.ipxe << 'IPXE_EOF'
+                      #!ipxe
+                      dhcp
+                      :retry
+                      chain tftp://${next-server}/boot.ipxe || sleep 1 || goto retry
+                      IPXE_EOF
+                    - "cd /opt/ipxe/src && make bin/undionly.kpxe EMBED=embed.ipxe NO_WERROR=1"
+                    - "mkdir -p /var/lib/tftpboot"
+                    - "cp /opt/ipxe/src/bin/undionly.kpxe /var/lib/tftpboot/undionly.kpxe"
+                    - "apt-get clean && rm -rf /var/lib/apt/lists/*"
           providers:
             - name: libvirt
               engine: go://github.com/alexandremahdhaoui/testenv-vm/cmd/providers/testenv-vm-provider-libvirt@v0.12.1
@@ -353,7 +377,7 @@ engines:
                 vcpus: 1
                 network: TestNetwork
                 disk:
-                  baseImage: "{{ .Images.ubuntu.Path }}"
+                  baseImage: "{{ .Images.dnsmasq-base.Path }}"
                   size: 5G
                 cloudInit:
                   hostname: dnsmasq-server
@@ -367,9 +391,6 @@ engines:
                         nameservers:
                           addresses:
                             - "8.8.8.8"
-                  packages:
-                    - dnsmasq
-                    - curl
                   writeFiles:
                     # Write dnsmasq config to /tmp first; cloud-init's write_files
                     # runs BEFORE packages, so apt install dnsmasq would overwrite
@@ -397,37 +418,18 @@ engines:
                         dhcp-boot=undionly.kpxe,,192.168.100.2
                         log-dhcp
                       permissions: "0644"
-                    # Custom iPXE embedded script that chainloads to shaper.local
-                    # Retries on failure to handle transient port-forward reconnects
-                    # or pod restarts in the test k8s cluster.
-                    - path: /tmp/embed.ipxe
+                    - path: /var/lib/tftpboot/boot.ipxe
                       content: |
                         #!ipxe
-                        dhcp
                         :retry
-                        chain http://shaper.local:{{ .Env.PORTALLOC_SHAPER_E2E_API }}/ipxe?uuid=${uuid}&buildarch=${buildarch:uristring} || goto retry
+                        chain http://shaper.local:{{ .Env.PORTALLOC_SHAPER_E2E_API }}/ipxe?uuid=${uuid}&buildarch=${buildarch:uristring} || sleep 1 || goto retry
                       permissions: "0644"
                   runcmd:
                     - "systemctl disable --now systemd-resolved"
                     - "rm -f /etc/resolv.conf"
                     - "echo 'nameserver 8.8.8.8' > /etc/resolv.conf"
-                    - "mkdir -p /var/lib/tftpboot"
-                    # Build custom iPXE with embedded script
-                    # Using master branch commit that includes SMBIOS 3.0 support (required for QEMU 8.1+)
-                    # The SMBIOS 3.0 fix was merged on 2023-12-29 (commit fa622132)
-                    - "apt-get update && apt-get install -y git make gcc binutils perl liblzma-dev"
-                    - "git clone https://github.com/ipxe/ipxe.git /tmp/ipxe && cd /tmp/ipxe && git checkout fa62213231a882eb6bbcefa7ad1106bdb9aaeae2"
-                    - "cp /tmp/embed.ipxe /tmp/ipxe/src/embed.ipxe"
-                    - "cd /tmp/ipxe/src && make bin/undionly.kpxe EMBED=embed.ipxe NO_WERROR=1"
-                    - "cp /tmp/ipxe/src/bin/undionly.kpxe /var/lib/tftpboot/undionly.kpxe"
-                    # Install our dnsmasq config AFTER package install (packages
-                    # module runs before runcmd in cloud-init, so the dnsmasq
-                    # package may have overwritten /etc/dnsmasq.conf).
                     - "cp /tmp/dnsmasq.conf /etc/dnsmasq.conf"
                     - "systemctl restart dnsmasq"
-                    # Enable IP forwarding and NAT so VMs using DnsmasqServer as
-                    # their gateway (192.168.100.2) can reach the internet.
-                    # Dnsmasq advertises itself as the gateway by default.
                     - "sysctl -w net.ipv4.ip_forward=1"
                     - "iptables -t nat -A POSTROUTING -s 192.168.100.0/24 ! -d 192.168.100.0/24 -j MASQUERADE"
                   users:

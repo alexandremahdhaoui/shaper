@@ -375,7 +375,7 @@ func BuildIPXEISO(ctx context.Context, vmClient *VMClient, bridgeIP string) (str
 	sshKeyPath := vmClient.SSHKeyPath()
 	dnsmasqServerIP := vmClient.DnsmasqIP()
 	remoteBootISODir := "/tmp/boot-iso"
-	remoteIPXESrcDir := "/tmp/ipxe/src"
+	remoteIPXESrcDir := "/opt/ipxe/src"
 
 	// Create a unique temp file for the ISO to avoid permission issues
 	localISOFile, err := os.CreateTemp("", "boot-ipxe-*.iso")
@@ -432,8 +432,8 @@ chain http://%s:%d/ipxe?uuid=${uuid}&buildarch=${buildarch:uristring}
 	buildCmd := fmt.Sprintf(
 		"sudo apt-get update >/dev/null 2>&1 && "+
 			"sudo apt-get install -y genisoimage isolinux syslinux-common >/dev/null 2>&1 || true && "+
-			"sudo chown -R $(id -u):$(id -g) /tmp/ipxe && "+
-			"git config --global --add safe.directory /tmp/ipxe && "+
+			"sudo chown -R $(id -u):$(id -g) /opt/ipxe && "+
+			"git config --global --add safe.directory /opt/ipxe && "+
 			"cd %s && make clean && make bin/ipxe.iso EMBED=%s/embed.ipxe NO_WERROR=1",
 		remoteIPXESrcDir, remoteBootISODir,
 	)
@@ -470,7 +470,7 @@ func BuildMTLSIPXEISO(ctx context.Context, vmClient *VMClient, params BuildMTLSI
 	sshKeyPath := vmClient.SSHKeyPath()
 	dnsmasqServerIP := vmClient.DnsmasqIP()
 	remoteCertDir := "/tmp/mtls-certs"
-	remoteIPXESrcDir := "/tmp/ipxe/src"
+	remoteIPXESrcDir := "/opt/ipxe/src"
 
 	// Create a unique temp file for the ISO to avoid permission issues
 	// from previous test runs (libvirt may have changed ownership)
@@ -615,8 +615,8 @@ goto retry
 	buildCmd := fmt.Sprintf(
 		"sudo apt-get update >/dev/null 2>&1 && "+
 			"sudo apt-get install -y genisoimage isolinux syslinux-common >/dev/null 2>&1 || true && "+
-			"sudo chown -R $(id -u):$(id -g) /tmp/ipxe && "+
-			"git config --global --add safe.directory /tmp/ipxe && "+
+			"sudo chown -R $(id -u):$(id -g) /opt/ipxe && "+
+			"git config --global --add safe.directory /opt/ipxe && "+
 			"mkdir -p %s/config/local && "+
 			"echo -e '#define DOWNLOAD_PROTO_HTTPS\\n#define CRYPTO_HMAC\\n#define CRYPTO_RSA\\n#define CRYPTO_AES_CBC\\n#define CRYPTO_SHA1\\n#define CRYPTO_SHA256\\n#define CERT_CMD\\n#define PRIVKEY_CMD\\n#define IMAGE_TRUST_CMD' > %s/config/local/general.h && "+
 			// Create openssl wrapper that adds -traditional for rsa commands

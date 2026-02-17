@@ -793,19 +793,26 @@ shell`
 	// Record timestamp before VM boot for log filtering
 	startTime := time.Now()
 
-	// Step 6: Start the VM
+	// Step 6: Verify bridge access before starting VM.
+	// The mTLS test's Helm upgrade/downgrade may have temporarily killed the
+	// VM-access port-forward. Wait for auto-reconnect to complete.
+	t.Log("Verifying bridge access before starting VM...")
+	require.NoError(t, e2e.VerifyBridgeAccess(testBridgeIP(cfg)),
+		"bridge access not ready - VM-access port-forward may still be reconnecting")
+
+	// Step 7: Start the VM
 	t.Log("Starting VM...")
 	err = vmClient.StartVM(ctx, vmName)
 	require.NoError(t, err, "failed to start VM")
 	t.Logf("Started VM: %s", vmName)
 
-	// Step 7: Wait for VM to get an IP
+	// Step 8: Wait for VM to get an IP
 	t.Log("Waiting for VM to get IP address...")
 	vmIP, err := vmClient.GetVMIP(ctx, vmName)
 	require.NoError(t, err, "VM did not get IP address - DHCP may have failed")
 	t.Logf("VM got IP address: %s", vmIP)
 
-	// Step 8: Wait for profile_matched in shaper-api logs
+	// Step 9: Wait for profile_matched in shaper-api logs
 	// The custom iPXE binary with embedded script sends uuid=${uuid}&buildarch=${buildarch}
 	// to shaper-api. We verify the boot flow by checking that the expected profile was matched.
 	// Note: We already verified the UUID-specific assignment works at the API level
