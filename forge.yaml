@@ -314,7 +314,7 @@ engines:
                 # the allocateOpenPort call registers it as PORTALLOC_SHAPER_E2E_MTLS).
                 mtlsNodePort: '{{ allocateOpenPort "0.0.0.0" "shaper-e2e-mtls" 30000 32767 }}'
       # VM infrastructure for E2E testing
-      - engine: go://github.com/alexandremahdhaoui/testenv-vm/cmd/testenv-vm@v0.12.1
+      - engine: go://github.com/alexandremahdhaoui/testenv-vm/cmd/testenv-vm@v0.13.0
         deferTemplates: true
         spec:
           # Use /tmp for state directory so libvirt can access disk images
@@ -349,7 +349,7 @@ engines:
                     - "apt-get clean && rm -rf /var/lib/apt/lists/*"
           providers:
             - name: libvirt
-              engine: go://github.com/alexandremahdhaoui/testenv-vm/cmd/providers/testenv-vm-provider-libvirt@v0.12.1
+              engine: go://github.com/alexandremahdhaoui/testenv-vm/cmd/providers/testenv-vm-provider-libvirt@v0.13.0
               default: true
               spec: {}
 
